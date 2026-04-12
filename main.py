@@ -44,23 +44,33 @@ user_profiles = {}
 
 COOLDOWN = 6
 
-# -------- USER PROFILE SYSTEM -------- #
+# -------- USER PROFILE -------- #
 
 def get_user_profile(user_id):
     if user_id not in user_profiles:
         user_profiles[user_id] = {
             "messages": 0,
-            "favorite": False
+            "favorite": False,
+            "mood": "normal"
         }
 
     profile = user_profiles[user_id]
 
+    # base tone
     if profile["favorite"]:
-        tone = "You like this user. Be slightly warmer and more playful."
+        tone = "You like this user. Be slightly warmer and playful."
     elif profile["messages"] > 10:
-        tone = "You are familiar with this user. Light teasing allowed."
+        tone = "You are familiar. Light teasing allowed."
     else:
-        tone = "You don't know this user well. Be neutral but observant."
+        tone = "You don't know this user well. Stay observant."
+
+    # mood system
+    mood = profile.get("mood", "normal")
+
+    if mood == "cold":
+        tone += " Be colder and more blunt."
+    elif mood == "chaos":
+        tone += " Be chaotic, playful, unpredictable."
 
     return tone
 
@@ -74,7 +84,7 @@ def get_ai_response(user_id, user_message):
         "Content-Type": "application/json"
     }
 
-    profile = user_profiles.get(user_id, {"messages": 0, "favorite": False})
+    profile = user_profiles.get(user_id, {"messages": 0, "favorite": False, "mood": "normal"})
     profile["messages"] += 1
     user_profiles[user_id] = profile
 
@@ -137,13 +147,41 @@ async def on_message(message):
         return
 
     if msg.lower() == "!favorite":
-        if user_id not in user_profiles:
-            user_profiles[user_id] = {"messages": 0, "favorite": False}
+        user_profiles.setdefault(user_id, {"messages": 0, "favorite": False, "mood": "normal"})
         user_profiles[user_id]["favorite"] = True
         await message.channel.send("noted.")
         return
 
-    # -------- REPLY CONDITIONS -------- #
+    if msg.lower() == "!unfavorite":
+        if user_id in user_profiles:
+            user_profiles[user_id]["favorite"] = False
+        await message.channel.send("back to normal.")
+        return
+
+    if msg.lower() == "!reset":
+        memory[user_id] = []
+        await message.channel.send("forgot everything.")
+        return
+
+    if msg.lower() == "!cold":
+        user_profiles.setdefault(user_id, {"messages": 0, "favorite": False, "mood": "normal"})
+        user_profiles[user_id]["mood"] = "cold"
+        await message.channel.send("understood.")
+        return
+
+    if msg.lower() == "!chaos":
+        user_profiles.setdefault(user_id, {"messages": 0, "favorite": False, "mood": "normal"})
+        user_profiles[user_id]["mood"] = "chaos"
+        await message.channel.send("this should be interesting.")
+        return
+
+    if msg.lower().startswith("!force "):
+        forced = msg.replace("!force ", "")
+        reply = get_ai_response(user_id, forced)
+        await message.channel.send(reply)
+        return
+
+    # -------- AUTO REPLY -------- #
 
     should_reply = False
 
