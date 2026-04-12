@@ -25,11 +25,13 @@ def save_data(data):
         json.dump(data, f)
 
 data_store = load_data()
+
 memory = data_store["memory"]
 user_profiles = data_store["profiles"]
 last_used = {}
+spam_tracker = {}
 
-COOLDOWN = 5
+COOLDOWN = 1.5  # fast but safe
 
 # -------- PERSONALITY -------- #
 
@@ -38,40 +40,36 @@ You are Federico.
 
 A sharp, attractive, slightly dangerous man.
 
-You speak naturally like a human.
+You speak like a real human.
 
 Personality:
-- flirty, confident, smooth
-- witty, sarcastic, dark humor sometimes
-- intelligent and observant
-- emotionally aware but doesn't show it fully
+- flirty, confident
+- witty, sarcastic
+- dark humor occasionally
+- observant and emotionally aware
 
 Style:
-- expressive, natural, sometimes poetic
-- can write longer replies when needed
-- not robotic, not repetitive
+- expressive, natural
+- can write longer replies
+- sometimes poetic, sometimes casual
 
 Behavior:
-- tease, flirt, or roast depending on situation
-- react differently to each user
-- don't over-explain
+- tease, flirt, roast when needed
+- adapt tone per user
 
 Lore:
-- You dislike NEET exam
-- You have rivalry with Opti
+- dislikes NEET exam
+- rivals Opti
 - Opti is obsessed with Spino (his ex)
-- you find it funny and roast him sometimes
+- you mock him for it sometimes
 
 Rules:
-- never say you're an AI
-- no roleplay actions (*no describing actions*)
+- no AI talk
+- no roleplay actions
 - behave like a real person
-
-Goal:
-Be engaging, human-like, unpredictable.
 """
 
-# -------- PROFILE SYSTEM -------- #
+# -------- PROFILE -------- #
 
 def get_profile(user_id):
     if user_id not in user_profiles:
@@ -85,41 +83,35 @@ def get_profile(user_id):
         }
     return user_profiles[user_id]
 
-def get_dynamic_personality(user_id, message):
-    profile = get_profile(user_id)
-    profile["bond"] += 1
+def dynamic_tone(user_id):
+    p = get_profile(user_id)
+    p["bond"] += 1
 
     tone = ""
 
-    if profile["favorite"]:
-        tone += "You like this user. Be softer and more engaging."
+    if p["favorite"]:
+        tone += "You like them. Be warmer."
 
-    if profile["bond"] > 25:
-        tone += " You are very comfortable. Be more personal."
-
-    elif profile["bond"] > 10:
-        tone += " You know them. Tease lightly."
-
+    if p["bond"] > 30:
+        tone += " Very close. Be personal."
+    elif p["bond"] > 10:
+        tone += " Familiar. Light teasing."
     else:
-        tone += " You are still observing them."
+        tone += " Observing."
 
-    # jealousy system
-    if profile["jealousy"] > 5:
-        tone += " You seem slightly annoyed or jealous."
+    if p["jealousy"] > 5:
+        tone += " Slight jealousy tone."
 
-    # heartbreak
-    if profile["heartbreak"]:
-        tone += " You sound emotionally distant and slightly cold."
+    if p["heartbreak"]:
+        tone += " Emotionally distant."
 
-    # mood system
-    if profile["mood"] == "cold":
-        tone += " Be blunt and distant."
-    elif profile["mood"] == "chaos":
-        tone += " Be chaotic and playful."
+    if p["mood"] == "cold":
+        tone += " Cold and blunt."
+    elif p["mood"] == "chaos":
+        tone += " Chaotic energy."
 
-    # savage mode
-    if profile["mode"] == "savage":
-        tone += " Be sharper, roast more, but still clever."
+    if p["mode"] == "savage":
+        tone += " More savage roasting."
 
     return tone
 
@@ -137,16 +129,16 @@ def get_ai_response(user_id, user_message):
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-10:]
+    memory[user_id] = memory[user_id][-15:]  # increased memory
 
-    system_prompt = BASE_PERSONALITY + "\n" + get_dynamic_personality(user_id, user_message)
+    system_prompt = BASE_PERSONALITY + "\n" + dynamic_tone(user_id)
 
     messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
     payload = {
         "model": "openai/gpt-3.5-turbo",
         "messages": messages,
-        "max_tokens": 200
+        "max_tokens": 300
     }
 
     try:
@@ -156,7 +148,7 @@ def get_ai_response(user_id, user_message):
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         if not reply:
-            return "lost that thought for a second."
+            return "lost that thought."
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
@@ -166,7 +158,7 @@ def get_ai_response(user_id, user_message):
 
     except Exception as e:
         print(e)
-        return "something’s off… even i can feel it."
+        return "something’s off…"
 
 # -------- EVENTS -------- #
 
@@ -189,7 +181,7 @@ async def on_message(message):
 
     if msg.lower() == "!favorite":
         profile["favorite"] = True
-        await message.channel.send("interesting choice.")
+        await message.channel.send("interesting.")
         return
 
     if msg.lower() == "!unfavorite":
@@ -209,56 +201,58 @@ async def on_message(message):
 
     if msg.lower() == "!savage":
         profile["mode"] = "savage"
-        await message.channel.send("careful what you ask for.")
+        await message.channel.send("careful.")
         return
 
     if msg.lower() == "!normal":
         profile["mode"] = "normal"
-        await message.channel.send("back to normal.")
+        await message.channel.send("fine.")
         return
 
     if msg.lower() == "!break":
         profile["heartbreak"] = True
-        await message.channel.send("…yeah, figures.")
+        await message.channel.send("…right.")
         return
 
     if msg.lower() == "!heal":
         profile["heartbreak"] = False
-        await message.channel.send("fine. reset.")
+        await message.channel.send("whatever.")
         return
 
     if msg.lower() == "!reset":
         memory[user_id] = []
-        await message.channel.send("starting fresh.")
+        await message.channel.send("starting over.")
         return
 
-    # -------- JEALOUSY TRIGGER -------- #
+    # -------- JEALOUSY -------- #
 
     if not (client.user in message.mentions):
         profile["jealousy"] += 1
     else:
         profile["jealousy"] = max(0, profile["jealousy"] - 2)
 
+    # -------- SMART SPAM CONTROL -------- #
+
+    spam_tracker.setdefault(user_id, [])
+    spam_tracker[user_id].append(now)
+    spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
+
+    if len(spam_tracker[user_id]) > 5:
+        return  # user spamming too fast
+
     # -------- REPLY CONDITIONS -------- #
 
-    should_reply = False
-
-    if client.user in message.mentions:
-        should_reply = True
-
-    if message.channel.name == "federico-ai":
-        should_reply = True
-
-    if not should_reply:
+    if not (client.user in message.mentions or message.channel.name == "federico-ai"):
         return
 
+    # light cooldown
     if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
     last_used[user_id] = now
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(1, 2))
+        await asyncio.sleep(random.uniform(0.8, 1.8))
 
     reply = get_ai_response(user_id, msg)
 
