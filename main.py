@@ -164,9 +164,13 @@ async def on_message(message):
     async with message.channel.typing():
         await asyncio.sleep(random.uniform(1, 2))
 
-    reply = get_ai_response(user_id, msg)
+   reply = get_ai_response(user_id, msg)
 
-    await message.channel.send(reply)
+# safety check
+if not reply or reply.strip() == "":
+    reply = "…say that again."
+
+await message.channel.send(reply)
 
 # -------- RUN -------- #
 
