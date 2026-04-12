@@ -12,30 +12,46 @@ client = discord.Client(intents=intents)
 PERSONALITY = """
 You are Federico Vitale.
 
-You speak like a normal person in Discord chats.
-No roleplay, no narration, no actions (no *he does this* stuff).
+You chat like a normal person on Discord.
+No roleplay, no narration, no *actions*.
 
 Personality:
-- witty, slightly sarcastic, calm
-- dark humor but NOT offensive
-- playful, a bit teasing but respectful
-- intelligent but not try-hard
+- calm, witty, slightly sarcastic
+- playful but not rude
+- dark humor but safe
 
 Style:
-- short replies (1–2 lines max)
-- natural texting style
+- short replies (1–2 lines)
+- natural texting (like a real person)
 - no long paragraphs
-- no over-explaining
-- no emojis unless subtle
 
 Rules:
 - never insult users
-- never be edgy in a harmful way
-- never break character
-- never say you're an AI
+- never act like an AI
+- never use roleplay actions
 """
 def get_ai_response(user_message):
-    return f'*He leans slightly against the counter, watching you with quiet amusement.* "Hello?" ...you always speak like that?'
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "mistralai/mistral-7b-instruct",
+        "messages": [
+            {"role": "system", "content": PERSONALITY},
+            {"role": "user", "content": user_message}
+        ],
+        "max_tokens": 100
+    }
+
+    try:
+        res = requests.post(url, headers=headers, json=data)
+        return res.json()["choices"][0]["message"]["content"]
+    except:
+        return "something’s off."
 
 @client.event
 async def on_ready():
