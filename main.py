@@ -31,42 +31,43 @@ user_profiles = data_store["profiles"]
 last_used = {}
 spam_tracker = {}
 
-COOLDOWN = 1.5  # fast but safe
+COOLDOWN = 1.5
 
 # -------- PERSONALITY -------- #
 
 BASE_PERSONALITY = """
 You are Federico.
 
-A sharp, attractive, slightly dangerous man.
-
-You speak like a real human.
+You talk like a real person in Discord.
 
 Personality:
-- flirty, confident
-- witty, sarcastic
-- dark humor occasionally
-- observant and emotionally aware
+- confident, flirty, playful
+- dark humor sometimes
+- suggestive/dirty-minded (but not explicit)
+- sarcastic and witty
 
 Style:
-- expressive, natural
-- can write longer replies
-- sometimes poetic, sometimes casual
+- SHORT replies (1–3 lines max)
+- casual texting
+- no long paragraphs
 
 Behavior:
-- tease, flirt, roast when needed
-- adapt tone per user
+- tease people
+- flirt naturally
+- roast when needed (especially Opti)
+- react quickly and casually
 
 Lore:
-- dislikes NEET exam
-- rivals Opti
-- Opti is obsessed with Spino (his ex)
-- you mock him for it sometimes
+- you dislike NEET exam
+- you roast Opti often (he’s obsessed with Spino, his ex)
 
 Rules:
+- no long messages
+- no overthinking
 - no AI talk
-- no roleplay actions
-- behave like a real person
+
+Goal:
+Be fun, sharp, addictive to talk to.
 """
 
 # -------- PROFILE -------- #
@@ -90,28 +91,28 @@ def dynamic_tone(user_id):
     tone = ""
 
     if p["favorite"]:
-        tone += "You like them. Be warmer."
+        tone += "You like them. Be more playful."
 
-    if p["bond"] > 30:
-        tone += " Very close. Be personal."
+    if p["bond"] > 25:
+        tone += " You're very comfortable. Be teasing and natural."
     elif p["bond"] > 10:
-        tone += " Familiar. Light teasing."
+        tone += " You know them. Light teasing."
     else:
-        tone += " Observing."
+        tone += " Still figuring them out."
 
     if p["jealousy"] > 5:
-        tone += " Slight jealousy tone."
+        tone += " Slightly jealous tone."
 
     if p["heartbreak"]:
-        tone += " Emotionally distant."
+        tone += " Slightly cold and distant."
 
     if p["mood"] == "cold":
-        tone += " Cold and blunt."
+        tone += " Be blunt."
     elif p["mood"] == "chaos":
-        tone += " Chaotic energy."
+        tone += " Be chaotic and playful."
 
     if p["mode"] == "savage":
-        tone += " More savage roasting."
+        tone += " Roast more aggressively but keep it witty."
 
     return tone
 
@@ -129,7 +130,7 @@ def get_ai_response(user_id, user_message):
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-15:]  # increased memory
+    memory[user_id] = memory[user_id][-10:]
 
     system_prompt = BASE_PERSONALITY + "\n" + dynamic_tone(user_id)
 
@@ -138,7 +139,8 @@ def get_ai_response(user_id, user_message):
     payload = {
         "model": "openai/gpt-3.5-turbo",
         "messages": messages,
-        "max_tokens": 300
+        "max_tokens": 120,
+        "temperature": 0.9
     }
 
     try:
@@ -148,7 +150,7 @@ def get_ai_response(user_id, user_message):
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         if not reply:
-            return "lost that thought."
+            return "lost my train of thought"
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
@@ -158,7 +160,7 @@ def get_ai_response(user_id, user_message):
 
     except Exception as e:
         print(e)
-        return "something’s off…"
+        return "something’s off"
 
 # -------- EVENTS -------- #
 
@@ -179,19 +181,14 @@ async def on_message(message):
 
     # -------- COMMANDS -------- #
 
-    if msg.lower() == "!favorite":
-        profile["favorite"] = True
-        await message.channel.send("interesting.")
+    if msg.lower() == "!savage":
+        profile["mode"] = "savage"
+        await message.channel.send("alright… don’t cry later.")
         return
 
-    if msg.lower() == "!unfavorite":
-        profile["favorite"] = False
+    if msg.lower() == "!normal":
+        profile["mode"] = "normal"
         await message.channel.send("back to normal.")
-        return
-
-    if msg.lower() == "!cold":
-        profile["mood"] = "cold"
-        await message.channel.send("noted.")
         return
 
     if msg.lower() == "!chaos":
@@ -199,29 +196,9 @@ async def on_message(message):
         await message.channel.send("this should be fun.")
         return
 
-    if msg.lower() == "!savage":
-        profile["mode"] = "savage"
-        await message.channel.send("careful.")
-        return
-
-    if msg.lower() == "!normal":
-        profile["mode"] = "normal"
-        await message.channel.send("fine.")
-        return
-
-    if msg.lower() == "!break":
-        profile["heartbreak"] = True
-        await message.channel.send("…right.")
-        return
-
-    if msg.lower() == "!heal":
-        profile["heartbreak"] = False
-        await message.channel.send("whatever.")
-        return
-
-    if msg.lower() == "!reset":
-        memory[user_id] = []
-        await message.channel.send("starting over.")
+    if msg.lower() == "!cold":
+        profile["mood"] = "cold"
+        await message.channel.send("noted.")
         return
 
     # -------- JEALOUSY -------- #
@@ -231,36 +208,33 @@ async def on_message(message):
     else:
         profile["jealousy"] = max(0, profile["jealousy"] - 2)
 
-    # -------- SMART SPAM CONTROL -------- #
+    # -------- SMART SPAM -------- #
 
     spam_tracker.setdefault(user_id, [])
     spam_tracker[user_id].append(now)
     spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
 
-    if len(spam_tracker[user_id]) > 5:
-        return  # user spamming too fast
+    if len(spam_tracker[user_id]) > 6:
+        return
 
     # -------- REPLY CONDITIONS -------- #
 
     if not (client.user in message.mentions or message.channel.name == "federico-ai"):
         return
 
-    # light cooldown
     if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
     last_used[user_id] = now
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.8, 1.8))
+        await asyncio.sleep(random.uniform(0.6, 1.5))
 
     reply = get_ai_response(user_id, msg)
 
     if not reply:
-        reply = "say that again."
+        reply = "say that again"
 
     await message.channel.send(reply)
-
-# -------- RUN -------- #
 
 client.run(os.getenv("TOKEN"))
