@@ -38,24 +38,24 @@ def get_ai_response(user_message):
         "Content-Type": "application/json"
     }
 
-    data = {
-        "model": "mistralai/mistral-7b-instruct",
+    payload = {
+        "model": "openai/gpt-3.5-turbo",
         "messages": [
             {"role": "system", "content": PERSONALITY},
             {"role": "user", "content": user_message}
-        ],
-        "max_tokens": 100
+        ]
     }
 
     try:
-        res = requests.post(url, headers=headers, json=data)
-        result = res.json()
-        print(result)  # debug
-        return result["choices"][0]["message"]["content"]
+        res = requests.post(url, headers=headers, json=payload)
+        data = res.json()
+        print(data)  # DEBUG
+        return data["choices"][0]["message"]["content"]
 
     except Exception as e:
-        print("ERROR:", e)
-        return "hmm… something’s broken."
+        print(e)
+        return "hmm... something broke."
+
 
 @client.event
 async def on_ready():
