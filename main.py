@@ -2,6 +2,8 @@ import discord
 import requests
 import os
 import time
+import random
+import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -16,19 +18,24 @@ You are Federico Vitale.
 Talk like a normal Discord user.
 No roleplay, no narration, no actions.
 
-Be:
-- casual
+Personality:
+- chill
 - slightly witty
+- casual texting
+- a bit sarcastic but not rude
+
+Style:
 - short replies (1–2 lines)
+- natural texting
+- no long paragraphs
 
 Never say you're an AI.
 """
 
-# memory per user
 memory = {}
-
-# cooldown per user
 last_used = {}
+
+COOLDOWN = 6  # seconds per user
 
 # -------- AI FUNCTION -------- #
 
@@ -40,36 +47,39 @@ def get_ai_response(user_id, user_message):
         "Content-Type": "application/json"
     }
 
-    # store memory
+    # memory setup
     if user_id not in memory:
         memory[user_id] = []
 
-    memory[user_id].append(user_message)
-    memory[user_id] = memory[user_id][-5:]  # last 5 messages
+    memory[user_id].append({"role": "user", "content": user_message})
+    memory[user_id] = memory[user_id][-6:]  # last 6 messages
 
-    messages = [{"role": "system", "content": PERSONALITY}]
-
-    for msg in memory[user_id]:
-        messages.append({"role": "user", "content": msg})
+    messages = [{"role": "system", "content": PERSONALITY}] + memory[user_id]
 
     payload = {
-        "model": "mistralai/mistral-7b-instruct",  # cheap model
+        "model": "openai/gpt-3.5-turbo",  # stable + works
         "messages": messages,
-        "max_tokens": 80  # saves money
+        "max_tokens": 80
     }
 
     try:
         res = requests.post(url, headers=headers, json=payload)
 
-print(res.status_code)
-print(res.text)
+        # DEBUG (optional, safe to keep)
+        print(res.status_code)
+        print(res.text)
 
-data = res.json()
-return data["choices"][0]["message"]["content"]
+        data = res.json()
+        reply = data["choices"][0]["message"]["content"]
+
+        # store bot reply in memory
+        memory[user_id].append({"role": "assistant", "content": reply})
+
+        return reply
 
     except Exception as e:
         print(e)
-        return "bruh something broke"
+        return "something broke 😭"
 
 # -------- EVENTS -------- #
 
@@ -85,30 +95,46 @@ async def on_message(message):
     user_id = str(message.author.id)
     now = time.time()
 
-    # cooldown (5 sec per user)
-    if user_id in last_used and now - last_used[user_id] < 5:
+    msg = message.content
+
+    # -------- COMMANDS -------- #
+
+    if msg.lower() == "!ping":
+        await message.channel.send("pong 🏓")
+        return
+
+    if msg.lower() == "!help":
+        await message.channel.send("just talk normally or mention me 😄")
+        return
+
+    # -------- REPLY CONDITIONS -------- #
+
+    should_reply = False
+
+    # reply if mentioned
+    if client.user in message.mentions:
+        should_reply = True
+
+    # reply in specific channel
+    if message.channel.name == "federico-ai":
+        should_reply = True
+
+    if not should_reply:
+        return
+
+    # cooldown per user
+    if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
     last_used[user_id] = now
 
-    msg = message.content.lower()
+    # typing effect
+    async with message.channel.typing():
+        await asyncio.sleep(random.uniform(1, 2))
 
-    # -------- COMMANDS -------- #
+    reply = get_ai_response(user_id, msg)
 
-    if msg == "!ping":
-        await message.channel.send("pong 🏓")
-        return
-
-    if msg == "!help":
-        await message.channel.send("commands: !ping, !help, !ai <message>")
-        return
-
-    if msg.startswith("!ai "):
-        prompt = message.content[4:]
-
-        reply = get_ai_response(user_id, prompt)
-        await message.channel.send(reply)
-        return
+    await message.channel.send(reply)
 
 # -------- RUN -------- #
 
