@@ -55,7 +55,6 @@ def get_user_profile(user_id):
 
     profile = user_profiles[user_id]
 
-    # decide personality toward user
     if profile["favorite"]:
         tone = "You like this user. Be slightly warmer and more playful."
     elif profile["messages"] > 10:
@@ -75,12 +74,10 @@ def get_ai_response(user_id, user_message):
         "Content-Type": "application/json"
     }
 
-    # profile update
-    profile = user_profiles.get(user_id, {"messages": 0})
+    profile = user_profiles.get(user_id, {"messages": 0, "favorite": False})
     profile["messages"] += 1
     user_profiles[user_id] = profile
 
-    # memory
     if user_id not in memory:
         memory[user_id] = []
 
@@ -103,10 +100,8 @@ def get_ai_response(user_id, user_message):
 
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-if not reply:
-    return "…lost my train of thought."
-
-return reply
+        if not reply:
+            return "…lost my train of thought."
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
@@ -142,6 +137,8 @@ async def on_message(message):
         return
 
     if msg.lower() == "!favorite":
+        if user_id not in user_profiles:
+            user_profiles[user_id] = {"messages": 0, "favorite": False}
         user_profiles[user_id]["favorite"] = True
         await message.channel.send("noted.")
         return
@@ -169,13 +166,15 @@ async def on_message(message):
     async with message.channel.typing():
         await asyncio.sleep(random.uniform(1, 2))
 
-   reply = get_ai_response(user_id, msg)
+    try:
+        reply = get_ai_response(user_id, msg)
+    except:
+        reply = "…something went wrong."
 
-# safety check
-if not reply or reply.strip() == "":
-    reply = "…say that again."
+    if not reply or reply.strip() == "":
+        reply = "…say that again."
 
-await message.channel.send(reply)
+    await message.channel.send(reply)
 
 # -------- RUN -------- #
 
