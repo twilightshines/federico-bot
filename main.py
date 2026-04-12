@@ -17,10 +17,7 @@ Keep replies short and natural like Discord chat.
 Never say you are an AI.
 """
 def get_ai_response(user_message):
-    try:
-        return f"*He leans slightly against the counter, watching you with quiet amusement.* \"{user_message}?\" ...you always speak like that?"
-    except:
-        return "…something seems off."
+    return f'*He leans slightly against the counter, watching you with quiet amusement.* "Hello?" ...you always speak like that?'
 
 @client.event
 async def on_ready():
