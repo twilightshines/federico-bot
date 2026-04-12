@@ -16,21 +16,9 @@ You never insult or offend.
 Keep replies short and natural like Discord chat.
 Never say you are an AI.
 """
-
 def get_ai_response(user_message):
-    url = "https://api.ollama.ai/v1/chat"
-    
-    payload = {
-        "model": "llama3",
-        "messages": [
-            {"role": "system", "content": PERSONALITY},
-            {"role": "user", "content": user_message}
-        ]
-    }
-
     try:
-        res = requests.post(url, json=payload)
-        return res.json()["message"]["content"]
+        return f"*He leans slightly against the counter, watching you with quiet amusement.* \"{user_message}?\" ...you always speak like that?"
     except:
         return "…something seems off."
 
