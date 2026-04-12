@@ -13,8 +13,6 @@ client = discord.Client(intents=intents)
 
 DATA_FILE = "data.json"
 
-# -------- LOAD / SAVE -------- #
-
 def load_data():
     try:
         with open(DATA_FILE, "r") as f:
@@ -27,7 +25,6 @@ def save_data(data):
         json.dump(data, f)
 
 data_store = load_data()
-
 memory = data_store["memory"]
 user_profiles = data_store["profiles"]
 last_used = {}
@@ -39,80 +36,94 @@ COOLDOWN = 5
 BASE_PERSONALITY = """
 You are Federico.
 
-You are a handsome, sharp-minded, slightly dangerous man.
+A sharp, attractive, slightly dangerous man.
 
-You speak like a real human, not a bot.
+You speak naturally like a human.
 
 Personality:
 - flirty, confident, smooth
-- witty, sarcastic, slightly dark humor
+- witty, sarcastic, dark humor sometimes
 - intelligent and observant
-- sometimes philosophical, sometimes playful
-- behave like a human
+- emotionally aware but doesn't show it fully
 
 Style:
-- expressive and natural
-- sometimes poetic, sometimes casual
+- expressive, natural, sometimes poetic
 - can write longer replies when needed
 - not robotic, not repetitive
-- have dark humor sometimes 
 
 Behavior:
-- sometimes flirty according to the situation 
-- tease and roast when deserved
-- adapt tone based on the person
-- never over-explain
-- roast person named Opti 
+- tease, flirt, or roast depending on situation
+- react differently to each user
+- don't over-explain
 
 Lore:
-- You dislike the NEET exam and think it's pointless
-- You have a rivalry with someone named Opti
+- You dislike NEET exam
+- You have rivalry with Opti
 - Opti is obsessed with Spino (his ex)
-
+- you find it funny and roast him sometimes
 
 Rules:
-- do NOT act like an AI
-- do NOT narrate actions (*no roleplay*)
-- just speak naturally like a real person
+- never say you're an AI
+- no roleplay actions (*no describing actions*)
+- behave like a real person
 
 Goal:
-Be engaging, unpredictable, and interesting.
+Be engaging, human-like, unpredictable.
 """
 
 # -------- PROFILE SYSTEM -------- #
 
-def get_user_profile(user_id):
+def get_profile(user_id):
     if user_id not in user_profiles:
         user_profiles[user_id] = {
-            "messages": 0,
+            "bond": 0,
             "favorite": False,
             "mood": "normal",
-            "bond": 0
+            "jealousy": 0,
+            "heartbreak": False,
+            "mode": "normal"
         }
+    return user_profiles[user_id]
 
-    profile = user_profiles[user_id]
+def get_dynamic_personality(user_id, message):
+    profile = get_profile(user_id)
     profile["bond"] += 1
 
     tone = ""
 
     if profile["favorite"]:
-        tone += "You like this person. Be warmer and slightly more playful."
+        tone += "You like this user. Be softer and more engaging."
 
     if profile["bond"] > 25:
-        tone += " You are very familiar. Be more personal and expressive."
-    elif profile["bond"] > 10:
-        tone += " You know them. Light teasing allowed."
-    else:
-        tone += " You don't know them well. Stay observant."
+        tone += " You are very comfortable. Be more personal."
 
+    elif profile["bond"] > 10:
+        tone += " You know them. Tease lightly."
+
+    else:
+        tone += " You are still observing them."
+
+    # jealousy system
+    if profile["jealousy"] > 5:
+        tone += " You seem slightly annoyed or jealous."
+
+    # heartbreak
+    if profile["heartbreak"]:
+        tone += " You sound emotionally distant and slightly cold."
+
+    # mood system
     if profile["mood"] == "cold":
-        tone += " Be colder, distant, slightly blunt."
+        tone += " Be blunt and distant."
     elif profile["mood"] == "chaos":
-        tone += " Be chaotic, playful, unpredictable."
+        tone += " Be chaotic and playful."
+
+    # savage mode
+    if profile["mode"] == "savage":
+        tone += " Be sharper, roast more, but still clever."
 
     return tone
 
-# -------- AI FUNCTION -------- #
+# -------- AI -------- #
 
 def get_ai_response(user_id, user_message):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -126,9 +137,9 @@ def get_ai_response(user_id, user_message):
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-10:]  # bigger memory
+    memory[user_id] = memory[user_id][-10:]
 
-    system_prompt = BASE_PERSONALITY + "\n" + get_user_profile(user_id)
+    system_prompt = BASE_PERSONALITY + "\n" + get_dynamic_personality(user_id, user_message)
 
     messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
@@ -145,7 +156,7 @@ def get_ai_response(user_id, user_message):
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         if not reply:
-            return "…lost my train of thought."
+            return "lost that thought for a second."
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
@@ -155,7 +166,7 @@ def get_ai_response(user_id, user_message):
 
     except Exception as e:
         print(e)
-        return "something broke… and for once it wasn’t me."
+        return "something’s off… even i can feel it."
 
 # -------- EVENTS -------- #
 
@@ -172,39 +183,61 @@ async def on_message(message):
     msg = message.content
     now = time.time()
 
+    profile = get_profile(user_id)
+
     # -------- COMMANDS -------- #
 
     if msg.lower() == "!favorite":
-        user_profiles.setdefault(user_id, {"messages":0,"favorite":False,"mood":"normal","bond":0})
-        user_profiles[user_id]["favorite"] = True
-        save_data({"memory": memory, "profiles": user_profiles})
+        profile["favorite"] = True
         await message.channel.send("interesting choice.")
         return
 
     if msg.lower() == "!unfavorite":
-        if user_id in user_profiles:
-            user_profiles[user_id]["favorite"] = False
-        save_data({"memory": memory, "profiles": user_profiles})
+        profile["favorite"] = False
         await message.channel.send("back to normal.")
         return
 
-    if msg.lower() == "!reset":
-        memory[user_id] = []
-        save_data({"memory": memory, "profiles": user_profiles})
-        await message.channel.send("clean slate.")
-        return
-
     if msg.lower() == "!cold":
-        user_profiles.setdefault(user_id, {"messages":0,"favorite":False,"mood":"normal","bond":0})
-        user_profiles[user_id]["mood"] = "cold"
+        profile["mood"] = "cold"
         await message.channel.send("noted.")
         return
 
     if msg.lower() == "!chaos":
-        user_profiles.setdefault(user_id, {"messages":0,"favorite":False,"mood":"normal","bond":0})
-        user_profiles[user_id]["mood"] = "chaos"
-        await message.channel.send("this might get interesting.")
+        profile["mood"] = "chaos"
+        await message.channel.send("this should be fun.")
         return
+
+    if msg.lower() == "!savage":
+        profile["mode"] = "savage"
+        await message.channel.send("careful what you ask for.")
+        return
+
+    if msg.lower() == "!normal":
+        profile["mode"] = "normal"
+        await message.channel.send("back to normal.")
+        return
+
+    if msg.lower() == "!break":
+        profile["heartbreak"] = True
+        await message.channel.send("…yeah, figures.")
+        return
+
+    if msg.lower() == "!heal":
+        profile["heartbreak"] = False
+        await message.channel.send("fine. reset.")
+        return
+
+    if msg.lower() == "!reset":
+        memory[user_id] = []
+        await message.channel.send("starting fresh.")
+        return
+
+    # -------- JEALOUSY TRIGGER -------- #
+
+    if not (client.user in message.mentions):
+        profile["jealousy"] += 1
+    else:
+        profile["jealousy"] = max(0, profile["jealousy"] - 2)
 
     # -------- REPLY CONDITIONS -------- #
 
@@ -219,22 +252,17 @@ async def on_message(message):
     if not should_reply:
         return
 
-    # cooldown
     if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
     last_used[user_id] = now
 
-    # typing effect
     async with message.channel.typing():
         await asyncio.sleep(random.uniform(1, 2))
 
-    try:
-        reply = get_ai_response(user_id, msg)
-    except:
-        reply = "…something slipped."
+    reply = get_ai_response(user_id, msg)
 
-    if not reply or reply.strip() == "":
+    if not reply:
         reply = "say that again."
 
     await message.channel.send(reply)
