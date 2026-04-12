@@ -101,7 +101,12 @@ def get_ai_response(user_id, user_message):
         res = requests.post(url, headers=headers, json=payload)
         data = res.json()
 
-        reply = data["choices"][0]["message"]["content"]
+        reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+if not reply:
+    return "…lost my train of thought."
+
+return reply
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
