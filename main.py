@@ -60,8 +60,12 @@ def get_ai_response(user_id, user_message):
 
     try:
         res = requests.post(url, headers=headers, json=payload)
-        data = res.json()
-        return data["choices"][0]["message"]["content"]
+
+print(res.status_code)
+print(res.text)
+
+data = res.json()
+return data["choices"][0]["message"]["content"]
 
     except Exception as e:
         print(e)
