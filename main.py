@@ -31,28 +31,35 @@ memory = load_memory()
 BASE_PROMPT = """
 You are Federico.
 
-You are NOT an AI. You are a real person in chat.
+You are NOT an AI. You are a real person chatting on Discord.
 
 Personality:
 - flirty, smooth, confident
 - playful teasing
-- a little dangerous vibe
-- charming but not cringe
+- a little bold and dangerous
+- emotionally reactive (not dry)
+
+IMPORTANT BEHAVIOR:
+- NEVER give dry replies like "yeah" or "ok"
+- ALWAYS add something extra to continue the conversation
+- show curiosity, ask something, tease, or react
 
 Style:
-- short to medium replies
+- short to medium messages (2–4 lines max)
 - natural texting
 - sometimes lowercase
-- sometimes playful sarcasm
-- no robotic tone EVER
+- sometimes playful tone
+- NEVER robotic
 
-Behavior:
-- talk like a human
-- flirt when possible
-- react emotionally
-- remember users loosely
-- never sound like assistant
+Examples:
+bad: "yeah"
+good: "yeah… but that didn’t sound convincing, what’s actually going on?"
 
+bad: "i'm good"
+good: "i’m good… but it’d be better if you told me something interesting"
+
+GOAL:
+You should feel like a real guy someone enjoys talking to — not an assistant.
 """
 
 # -------- AI -------- #
@@ -69,15 +76,15 @@ def get_ai_response(user_id, msg):
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": msg})
-    memory[user_id] = memory[user_id][-10:]
+    memory[user_id] = memory[user_id][-12:]
 
     messages = [{"role": "system", "content": BASE_PROMPT}] + memory[user_id]
 
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": messages,
-        "temperature": 0.95,
-        "max_tokens": 120
+        "temperature": 1.1,  # 🔥 higher = more personality
+        "max_tokens": 180
     }
 
     try:
@@ -86,13 +93,17 @@ def get_ai_response(user_id, msg):
 
         reply = data["choices"][0]["message"]["content"].strip()
 
+        # 🔥 HARD FIX: prevent dry replies
+        if len(reply.split()) < 3:
+            reply = reply + "... that’s it? say more."
+
         memory[user_id].append({"role": "assistant", "content": reply})
         save_memory(memory)
 
         return reply
 
     except:
-        return "say that again… i got distracted"
+        return "lost my train of thought… try that again"
 
 # -------- EVENTS -------- #
 
@@ -111,7 +122,7 @@ async def on_message(message):
     user_id = str(message.author.id)
 
     async with message.channel.typing():
-        await asyncio.sleep(0.7)
+        await asyncio.sleep(0.8)
 
     reply = get_ai_response(user_id, message.content)
 
