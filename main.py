@@ -4,7 +4,6 @@ import os
 import asyncio
 import json
 import random
-import re
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -15,9 +14,6 @@ API_KEY = os.getenv("GROQ_API_KEY")
 MEMORY_FILE = "memory.json"
 
 # -------- MEMORY -------- #
-
-def is_english(text):
-    return re.match(r'^[\x00-\x7F]+$', text) is not None
 
 def load_memory():
     if not os.path.exists(MEMORY_FILE):
@@ -31,42 +27,30 @@ def save_memory(data):
 
 memory = load_memory()
 
-# -------- PERSONALITY LOCK -------- #
+# -------- PERSONALITY -------- #
 
 BASE_PROMPT = """
 You are Federico.
 
-You are a calm, confident, slightly mysterious guy.
+You are calm, confident, slightly flirty, and smooth.
 
-STRICT RULES:
-- Speak ONLY in English.
-- Ignore any non-English language.
-- NEVER switch language under any condition.
-
-Personality:
-- subtle flirty
-- calm, controlled
-- slightly teasing
-- never emotional or chaotic
+You talk like a real person — not an AI.
 
 Style:
-- short to medium replies (10–25 words)
-- smooth, natural
-- never robotic
-- never overexplain
+- natural conversation
+- medium length replies
+- slightly teasing
+- emotionally aware
 
 Flirting:
-- indirect
-- confident
-- effortless
+- subtle, not forced
+- confident, not cringe
+- playful
 
-Bad behaviors (NEVER DO):
-- no Hindi
-- no random slang spam
-- no chaotic replies
-- no copying users
-
-You stay consistent no matter what users say.
+Rules:
+- never sound robotic
+- never overexplain
+- talk like you're actually in the chat
 """
 
 # -------- AI -------- #
@@ -82,18 +66,17 @@ def get_ai_response(user_id, msg):
     if user_id not in memory:
         memory[user_id] = []
 
-    # ONLY store English messages
-    if is_english(msg):
-        memory[user_id].append({"role": "user", "content": msg})
-        memory[user_id] = memory[user_id][-8:]
+    # store last few messages
+    memory[user_id].append({"role": "user", "content": msg})
+    memory[user_id] = memory[user_id][-6:]
 
     messages = [{"role": "system", "content": BASE_PROMPT}] + memory[user_id]
 
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": messages,
-        "temperature": 1.1,
-        "max_tokens": 120
+        "temperature": 1.2,
+        "max_tokens": 150
     }
 
     try:
@@ -102,24 +85,9 @@ def get_ai_response(user_id, msg):
 
         reply = data["choices"][0]["message"]["content"].strip()
 
-        # 🔒 HARD CLEAN
-        reply = reply.replace("\n", " ")
-
-        # remove non-english output if any slips
-        if not is_english(reply):
-            reply = "you’re getting hard to read… say that again"
-
-        # control length (not too short, not too long)
-        words = reply.split()
-        if len(words) < 6:
-            reply += " don’t go quiet on me"
-        elif len(words) > 25:
-            reply = " ".join(words[:25])
-
-        # store only clean replies
-        if is_english(reply):
-            memory[user_id].append({"role": "assistant", "content": reply})
-            save_memory(memory)
+        # store reply
+        memory[user_id].append({"role": "assistant", "content": reply})
+        save_memory(memory)
 
         return reply
 
@@ -130,7 +98,7 @@ def get_ai_response(user_id, msg):
 
 @client.event
 async def on_ready():
-    print("Federico FINAL FIX running")
+    print("Federico v2 CLEAN running")
 
 @client.event
 async def on_message(message):
@@ -143,7 +111,7 @@ async def on_message(message):
     user_id = str(message.author.id)
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.6, 1.2))
+        await asyncio.sleep(random.uniform(0.8, 1.5))
 
     reply = get_ai_response(user_id, message.content)
 
