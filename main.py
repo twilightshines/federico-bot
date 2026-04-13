@@ -11,8 +11,21 @@ client = discord.Client(intents=intents)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-memory = {}
-user_profiles = {}
+MEMORY_FILE = "memory.json"
+
+# -------- LOAD MEMORY -------- #
+
+def load_memory():
+    if not os.path.exists(MEMORY_FILE):
+        return {}
+    with open(MEMORY_FILE, "r") as f:
+        return json.load(f)
+
+def save_memory(data):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+user_profiles = load_memory()
 
 # -------- ANALYZER -------- #
 
@@ -64,17 +77,19 @@ def get_user_profile(user_id):
     elif profile["messages"] > 5:
         profile["vibe"] = "friendly"
 
+    save_memory(user_profiles)
+
     return profile
 
 # -------- PROMPT -------- #
 
-def build_prompt(user_msg, analysis, profile):
+def build_prompt(msg, analysis, profile):
     return f"""
 You are Federico.
 
 User vibe: {profile['vibe']}
 
-User message: {user_msg}
+Message: {msg}
 
 Context:
 intent: {analysis['intent']}
@@ -82,8 +97,8 @@ emotion: {analysis['emotion']}
 
 Rules:
 - short replies
-- natural human texting
-- adapt to user vibe
+- natural texting
+- adapt to vibe
 - no AI tone
 
 Reply:
