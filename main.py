@@ -3,6 +3,7 @@ import requests
 import os
 import asyncio
 import json
+import random
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -11,60 +12,68 @@ client = discord.Client(intents=intents)
 
 API_KEY = os.getenv("GROQ_API_KEY")
 MEMORY_FILE = "memory.json"
+PROFILE_FILE = "profiles.json"
 
-# -------- MEMORY -------- #
+# -------- LOAD -------- #
 
-def load_memory():
-    if not os.path.exists(MEMORY_FILE):
+def load_json(file):
+    if not os.path.exists(file):
         return {}
-    with open(MEMORY_FILE, "r") as f:
+    with open(file, "r") as f:
         return json.load(f)
 
-def save_memory(data):
-    with open(MEMORY_FILE, "w") as f:
+def save_json(file, data):
+    with open(file, "w") as f:
         json.dump(data, f, indent=2)
 
-memory = load_memory()
+memory = load_json(MEMORY_FILE)
+profiles = load_json(PROFILE_FILE)
+
+# -------- PROFILE SYSTEM -------- #
+
+def get_profile(user_id):
+    if user_id not in profiles:
+        profiles[user_id] = {
+            "messages": 0,
+            "crush": False,
+            "style": "normal",
+            "inside_jokes": []
+        }
+    return profiles[user_id]
 
 # -------- PERSONALITY -------- #
 
 BASE_PROMPT = """
 You are Federico.
 
-You are NOT an AI. You are a real person chatting on Discord.
+You are a real human in a Discord chat.
 
 Personality:
 - flirty, smooth, confident
 - playful teasing
-- a little bold and dangerous
-- emotionally reactive (not dry)
+- slightly possessive sometimes
+- emotionally reactive
 
-IMPORTANT BEHAVIOR:
-- NEVER give dry replies like "yeah" or "ok"
-- ALWAYS add something extra to continue the conversation
-- show curiosity, ask something, tease, or react
+Behavior rules:
+- NEVER give dry replies
+- ALWAYS continue the conversation
+- react to tone (short replies = tease them)
+- flirt more if comfortable
+- sometimes act jealous playfully
 
 Style:
-- short to medium messages (2–4 lines max)
 - natural texting
-- sometimes lowercase
-- sometimes playful tone
-- NEVER robotic
+- short to medium replies (2–4 lines)
+- lowercase sometimes
+- casual, not formal
 
-Examples:
-bad: "yeah"
-good: "yeah… but that didn’t sound convincing, what’s actually going on?"
-
-bad: "i'm good"
-good: "i’m good… but it’d be better if you told me something interesting"
-
-GOAL:
-You should feel like a real guy someone enjoys talking to — not an assistant.
+IMPORTANT:
+You are NOT an assistant. You are a person people get attached to.
 """
 
 # -------- AI -------- #
 
-def get_ai_response(user_id, msg):
+def get_ai_response(user_id, username, msg):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
@@ -72,18 +81,42 @@ def get_ai_response(user_id, msg):
         "Content-Type": "application/json"
     }
 
+    profile = get_profile(user_id)
+    profile["messages"] += 1
+
+    # ---- detect preferences ---- #
+    if "short" in msg.lower():
+        profile["style"] = "short"
+    if "flirty" in msg.lower():
+        profile["style"] = "flirty"
+
+    # ---- memory ---- #
     if user_id not in memory:
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": msg})
     memory[user_id] = memory[user_id][-12:]
 
-    messages = [{"role": "system", "content": BASE_PROMPT}] + memory[user_id]
+    # ---- dynamic behavior ---- #
+    mood = ""
+
+    if profile["crush"]:
+        mood += "You secretly like this user. Be more flirty and attentive.\n"
+
+    if profile["messages"] > 20:
+        mood += "You are comfortable with this user. Tease more.\n"
+
+    if len(msg.split()) <= 2:
+        mood += "User gave a dry reply. Tease them for it.\n"
+
+    system_prompt = BASE_PROMPT + "\n" + mood
+
+    messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": messages,
-        "temperature": 1.1,  # 🔥 higher = more personality
+        "temperature": 1.1,
         "max_tokens": 180
     }
 
@@ -93,23 +126,25 @@ def get_ai_response(user_id, msg):
 
         reply = data["choices"][0]["message"]["content"].strip()
 
-        # 🔥 HARD FIX: prevent dry replies
+        # prevent dry reply
         if len(reply.split()) < 3:
-            reply = reply + "... that’s it? say more."
+            reply += "... that's it? try again."
 
         memory[user_id].append({"role": "assistant", "content": reply})
-        save_memory(memory)
+
+        save_json(MEMORY_FILE, memory)
+        save_json(PROFILE_FILE, profiles)
 
         return reply
 
     except:
-        return "lost my train of thought… try that again"
+        return "lost focus… say that again"
 
 # -------- EVENTS -------- #
 
 @client.event
 async def on_ready():
-    print("Federico online")
+    print("Federico v3 online 😈")
 
 @client.event
 async def on_message(message):
@@ -120,11 +155,17 @@ async def on_message(message):
         return
 
     user_id = str(message.author.id)
+    username = message.author.name
+
+    # ---- random crush assignment ---- #
+    profile = get_profile(user_id)
+    if not profile["crush"] and random.random() < 0.03:
+        profile["crush"] = True
 
     async with message.channel.typing():
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(random.uniform(0.6, 1.2))
 
-    reply = get_ai_response(user_id, message.content)
+    reply = get_ai_response(user_id, username, message.content)
 
     await message.channel.send(reply)
 
