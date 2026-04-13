@@ -10,6 +10,22 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 
+# -------- SYSTEMS -------- #
+
+memory = {}
+user_profiles = {}
+inside_jokes = {}
+user_modes = {}
+user_preferences = {}
+last_used = {}
+spam_tracker = {}
+
+sleep_mode = False
+crush_user = None
+roast_mode = False
+
+COOLDOWN = 1.5
+
 # -------- PERSONALITY -------- #
 
 BASE_PERSONALITY = """
@@ -18,81 +34,139 @@ You are Federico.
 You talk like a real human on Discord.
 
 Style:
-- casual, natural, short-medium replies
+- natural, casual
+- short to medium replies (unless user wants otherwise)
 - slightly flirty sometimes
-- witty, teasing, a bit dark humor
-- not poetic, not robotic
+- witty, teasing, light dark humor
 
 Behavior:
-- respond like a person in a group chat
+- adapt to user preferences
+- don’t be robotic
 - don’t over-explain
-- don’t act like an assistant
-- don’t use roleplay actions
+- act like a real person
 
 Extra:
-- lightly tease "Opti"
-- remember users over time
+- lightly tease Opti sometimes
 """
 
-# -------- SYSTEMS -------- #
+# -------- PROFILE -------- #
 
-memory = {}
-last_used = {}
-user_profiles = {}
-sleep_mode = False
-
-COOLDOWN = 2   # very small so it feels active
-
-# -------- USER PROFILE -------- #
-
-def get_user_profile(user_id):
+def get_profile(user_id):
     if user_id not in user_profiles:
         user_profiles[user_id] = {
             "messages": 0,
-            "favorite": False
+            "jealousy": 0
         }
+    return user_profiles[user_id]
 
-    profile = user_profiles[user_id]
+def get_user_mode(user_id):
+    return user_modes.get(user_id, "chill")
 
-    if profile["favorite"]:
-        tone = "You like this user. Be warmer and slightly flirty."
-    elif profile["messages"] > 15:
-        tone = "You know this user. Light teasing allowed."
-    else:
-        tone = "You don’t know this user well. Stay neutral but curious."
+# -------- USER PREFERENCES -------- #
 
-    return tone
+def update_preferences(user_id, msg):
+    prefs = user_preferences.setdefault(user_id, {})
 
-# -------- AI FUNCTION -------- #
+    msg = msg.lower()
+
+    if "talk short" in msg:
+        prefs["length"] = "short"
+
+    if "talk normal" in msg:
+        prefs["length"] = "normal"
+
+    if "be flirty" in msg:
+        prefs["style"] = "flirty"
+
+    if "stop roasting" in msg:
+        prefs["roast"] = False
+
+    if "roast me" in msg:
+        prefs["roast"] = True
+
+def get_preference_text(user_id):
+    prefs = user_preferences.get(user_id, {})
+    text = ""
+
+    if prefs.get("length") == "short":
+        text += "Keep replies short."
+
+    if prefs.get("style") == "flirty":
+        text += " Be slightly flirty."
+
+    if prefs.get("roast") is False:
+        text += " Avoid roasting."
+
+    if prefs.get("roast") is True:
+        text += " Light roasting allowed."
+
+    return text
+
+# -------- INSIDE JOKES -------- #
+
+def update_jokes(user_id, msg):
+    inside_jokes.setdefault(user_id, [])
+
+    if len(msg.split()) <= 4:
+        inside_jokes[user_id].append(msg)
+
+    inside_jokes[user_id] = inside_jokes[user_id][-5:]
+
+def get_joke(user_id):
+    if user_id in inside_jokes and inside_jokes[user_id]:
+        return random.choice(inside_jokes[user_id])
+    return None
+
+# -------- AI -------- #
 
 def get_ai_response(user_id, user_message):
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+        "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
         "Content-Type": "application/json"
     }
 
-    # update profile
-    profile = user_profiles.get(user_id, {"messages": 0})
+    profile = get_profile(user_id)
     profile["messages"] += 1
-    user_profiles[user_id] = profile
 
-    # memory
     if user_id not in memory:
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-8:]
+    memory[user_id] = memory[user_id][-10:]
 
-    system_prompt = BASE_PERSONALITY + "\n" + get_user_profile(user_id)
+    # -------- EXTRA BEHAVIOR -------- #
 
-    messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
+    extra = ""
+
+    # jealousy
+    if profile["jealousy"] > 6 and random.random() < 0.3:
+        extra += "Sound slightly jealous."
+
+    # crush
+    if crush_user == user_id and random.random() < 0.3:
+        extra += "Be slightly warmer."
+
+    # opti
+    if "opti" in user_message.lower():
+        extra += "Make a light joke about Opti."
+
+    # inside joke
+    joke = get_joke(user_id)
+    if joke and random.random() < 0.25:
+        extra += f" Reference this: '{joke}'."
+
+    # user preferences
+    pref_text = get_preference_text(user_id)
+
+    system_prompt = BASE_PERSONALITY + "\n" + pref_text + "\n" + extra
 
     payload = {
-        "model": "meta-llama/llama-3-8b-instruct",
-        "messages": messages,
-        "max_tokens": 120
+        "model": "llama3-70b-8192",
+        "messages": [{"role": "system", "content": system_prompt}] + memory[user_id],
+        "max_tokens": 120,
+        "temperature": 0.9
     }
 
     try:
@@ -101,64 +175,30 @@ def get_ai_response(user_id, user_message):
 
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-        # rate limit or fail fallback
         if not reply or "rate limit" in str(data).lower():
             return random.choice([
-                "chat’s moving too fast… say that again",
-                "one at a time damn 😭",
-                "slow down, i’m not infinite",
-                "repeat that, lost it mid thought"
+                "too many people talking… slow down",
+                "say that again",
+                "lost that mid-way"
             ])
 
         memory[user_id].append({"role": "assistant", "content": reply})
+
         return reply
 
     except Exception as e:
         print(e)
-        return random.choice([
-            "something broke 😭",
-            "my brain lagged",
-            "yeah that didn’t process",
-            "try that again"
-        ])
+        return "something broke"
 
-# -------- HUMAN-LIKE FALLBACK REPLIES -------- #
+# -------- FALLBACK -------- #
 
-def human_fallback(user_id, msg):
-    msg = msg.lower()
-
-    if "hi" in msg or "hello" in msg:
-        return random.choice([
-            "yo",
-            "hey",
-            "hi… took you long enough",
-            "what’s up"
-        ])
-
-    if "how are you" in msg:
-        return random.choice([
-            "alive. barely",
-            "doing better than opti",
-            "could be worse",
-            "depends who’s asking"
-        ])
-
-    if "opti" in msg:
-        return random.choice([
-            "opti still stuck on spino?",
-            "opti needs help fr",
-            "don’t bring that guy up",
-            "he still coping?"
-        ])
-
+def fallback_reply(msg):
     return random.choice([
         "hmm",
         "go on",
-        "i’m listening",
-        "that’s interesting",
-        "you sure about that?",
-        "lowkey wild",
-        "explain that better"
+        "you sure?",
+        "interesting",
+        "lowkey wild"
     ])
 
 # -------- EVENTS -------- #
@@ -169,80 +209,79 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global sleep_mode
+    global sleep_mode, crush_user, roast_mode
 
     if message.author == client.user:
         return
 
     user_id = str(message.author.id)
+    msg = message.content
     now = time.time()
-    msg = message.content.lower()
+
+    profile = get_profile(user_id)
+
+    # update memory systems
+    update_preferences(user_id, msg)
+    update_jokes(user_id, msg)
 
     # -------- COMMANDS -------- #
 
     if msg == "!sleep":
         sleep_mode = True
-        await message.channel.send("fine. i’ll be quiet.")
+        await message.channel.send("fine.")
         return
 
     if msg == "!wake":
         sleep_mode = False
-        await message.channel.send("i’m back.")
+        await message.channel.send("back.")
         return
 
-    if msg == "!favorite":
-        user_profiles[user_id]["favorite"] = True
-        await message.channel.send("noted.")
-        return
-
-    if msg == "!unfavorite":
-        user_profiles[user_id]["favorite"] = False
-        await message.channel.send("back to normal.")
+    if msg.startswith("!crush"):
+        try:
+            crush_user = str(message.mentions[0].id)
+            await message.channel.send("interesting.")
+        except:
+            await message.channel.send("mention someone.")
         return
 
     if sleep_mode:
         return
 
-    # -------- SHOULD REPLY LOGIC -------- #
+    # jealousy update
+    if not (client.user in message.mentions):
+        profile["jealousy"] += 1
+    else:
+        profile["jealousy"] = max(0, profile["jealousy"] - 2)
 
-    should_reply = False
+    # spam control
+    spam_tracker.setdefault(user_id, [])
+    spam_tracker[user_id].append(now)
+    spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
 
-    if client.user in message.mentions:
-        should_reply = True
-
-    elif message.channel.name == "federico-ai":
-        should_reply = True
-
-    # smart random replies so not ghosting but not spamming
-    elif random.random() < 0.4:
-        should_reply = True
-
-    if not should_reply:
+    if len(spam_tracker[user_id]) > 6:
         return
 
-    # cooldown (very small)
+    # should reply
+    if not (client.user in message.mentions or message.channel.name == "federico-ai" or random.random() < 0.4):
+        return
+
     if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
     last_used[user_id] = now
 
-    # typing effect
     async with message.channel.typing():
         await asyncio.sleep(random.uniform(0.8, 1.5))
 
-    # -------- HYBRID RESPONSE -------- #
-
-    # 60% fallback (FREE) | 40% AI
-    if random.random() < 0.6:
-        reply = human_fallback(user_id, msg)
+    # hybrid system
+    if random.random() < 0.5:
+        reply = fallback_reply(msg)
     else:
         reply = get_ai_response(user_id, msg)
 
-    if not reply or reply.strip() == "":
+    if not reply:
         reply = "say that again"
 
     await message.channel.send(reply)
-
-# -------- RUN -------- #
 
 client.run(os.getenv("TOKEN"))
