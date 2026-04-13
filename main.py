@@ -21,17 +21,14 @@ Talk like a real human.
 - slightly flirty
 - witty
 
-NEVER give dry replies like "go on", "hmm", etc.
-Always respond meaningfully.
+Never give boring replies.
+Always respond properly.
 """
 
 def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-        return "API KEY MISSING"
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -45,37 +42,51 @@ def get_ai_response(user_id, user_message):
     memory[user_id] = memory[user_id][-6:]
 
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",  # ✅ FIXED MODEL
         "messages": [{"role": "system", "content": BASE_PERSONALITY}] + memory[user_id],
-        "max_tokens": 120
+        "max_tokens": 120,
+        "temperature": 0.9
     }
 
     try:
         res = requests.post(url, headers=headers, json=payload)
 
         print("STATUS:", res.status_code)
-        print("RESPONSE:", res.text)
+        print("RAW:", res.text)
 
         if res.status_code != 200:
-            return f"API ERROR: {res.status_code}"
+            return None
 
         data = res.json()
 
         reply = data["choices"][0]["message"]["content"]
 
         if not reply:
-            return "EMPTY RESPONSE FROM AI"
+            return None
 
         memory[user_id].append({"role": "assistant", "content": reply})
         return reply
 
     except Exception as e:
         print("ERROR:", e)
-        return f"EXCEPTION: {str(e)}"
+        return None
+
+
+def smart_backup(msg):
+    msg = msg.lower()
+
+    if "hi" in msg:
+        return "hey."
+    if "how are" in msg:
+        return "i'm good. you?"
+    
+    return "say that again properly"
+
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
+
 
 @client.event
 async def on_message(message):
@@ -93,6 +104,10 @@ async def on_message(message):
 
     reply = get_ai_response(user_id, msg)
 
+    if not reply:
+        reply = smart_backup(msg)
+
     await message.channel.send(reply)
+
 
 client.run(os.getenv("TOKEN"))
