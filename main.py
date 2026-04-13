@@ -4,120 +4,66 @@ import os
 import time
 import random
 import asyncio
-import json
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 client = discord.Client(intents=intents)
 
-DATA_FILE = "data.json"
-
-def load_data():
-    try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"memory": {}, "profiles": {}, "jokes": {}}
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
-
-data_store = load_data()
-
-memory = data_store.get("memory", {})
-user_profiles = data_store.get("profiles", {})
-inside_jokes = data_store.get("jokes", {})
-
-last_used = {}
-spam_tracker = {}
-
-COOLDOWN = 1.5
-
-# -------- SLEEP SYSTEM -------- #
-is_sleeping = False
-last_message_time = time.time()
-
 # -------- PERSONALITY -------- #
 
 BASE_PERSONALITY = """
 You are Federico.
 
-Talk like a real person in Discord.
-
-Personality:
-- confident, flirty, playful
-- dark humor sometimes
-- slightly dirty-minded (suggestive, not explicit)
-- sarcastic and witty
+You talk like a real human on Discord.
 
 Style:
-- SHORT replies (1–3 lines)
-- casual texting
-- no long paragraphs
+- casual, natural, short-medium replies
+- slightly flirty sometimes
+- witty, teasing, a bit dark humor
+- not poetic, not robotic
 
 Behavior:
-- tease people
-- flirt naturally
-- roast when needed (especially Opti)
+- respond like a person in a group chat
+- don’t over-explain
+- don’t act like an assistant
+- don’t use roleplay actions
 
-Lore:
-- dislike NEET exam
-- roast Opti (obsessed with Spino)
-
-Rules:
-- no AI talk
-- no long messages
-
-Goal:
-Be fun, addictive, human-like.
+Extra:
+- lightly tease "Opti"
+- remember users over time
 """
 
-# -------- PROFILE -------- #
+# -------- SYSTEMS -------- #
 
-def get_profile(user_id):
+memory = {}
+last_used = {}
+user_profiles = {}
+sleep_mode = False
+
+COOLDOWN = 2   # very small so it feels active
+
+# -------- USER PROFILE -------- #
+
+def get_user_profile(user_id):
     if user_id not in user_profiles:
         user_profiles[user_id] = {
-            "bond": 0,
-            "jealousy": 0
+            "messages": 0,
+            "favorite": False
         }
-    return user_profiles[user_id]
 
-def dynamic_tone(user_id):
-    p = get_profile(user_id)
-    p["bond"] += 1
+    profile = user_profiles[user_id]
 
-    tone = ""
-
-    if p["bond"] > 20:
-        tone += "You know them well. Be more teasing."
-    elif p["bond"] > 10:
-        tone += "Light teasing."
+    if profile["favorite"]:
+        tone = "You like this user. Be warmer and slightly flirty."
+    elif profile["messages"] > 15:
+        tone = "You know this user. Light teasing allowed."
     else:
-        tone += "Observing."
-
-    if p["jealousy"] > 5:
-        tone += " Slight jealous tone."
+        tone = "You don’t know this user well. Stay neutral but curious."
 
     return tone
 
-# -------- INSIDE JOKES -------- #
-
-def update_jokes(user_id, msg):
-    inside_jokes.setdefault(user_id, [])
-
-    if len(msg.split()) <= 4:
-        inside_jokes[user_id].append(msg)
-
-    inside_jokes[user_id] = inside_jokes[user_id][-5:]
-
-def get_joke(user_id):
-    if user_id in inside_jokes and inside_jokes[user_id]:
-        return random.choice(inside_jokes[user_id])
-    return None
-
-# -------- AI -------- #
+# -------- AI FUNCTION -------- #
 
 def get_ai_response(user_id, user_message):
     url = "https://openrouter.ai/api/v1/chat/completions"
@@ -127,29 +73,26 @@ def get_ai_response(user_id, user_message):
         "Content-Type": "application/json"
     }
 
+    # update profile
+    profile = user_profiles.get(user_id, {"messages": 0})
+    profile["messages"] += 1
+    user_profiles[user_id] = profile
+
+    # memory
     if user_id not in memory:
         memory[user_id] = []
 
-    update_jokes(user_id, user_message)
-
     memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-10:]
+    memory[user_id] = memory[user_id][-8:]
 
-    joke = get_joke(user_id)
-
-    extra = ""
-    if joke and random.random() < 0.3:
-        extra = f" Occasionally reference this inside joke: '{joke}'."
-
-    system_prompt = BASE_PERSONALITY + "\n" + dynamic_tone(user_id) + extra
+    system_prompt = BASE_PERSONALITY + "\n" + get_user_profile(user_id)
 
     messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
     payload = {
-        "model": "openai/gpt-3.5-turbo",
+        "model": "meta-llama/llama-3-8b-instruct",
         "messages": messages,
-        "max_tokens": 120,
-        "temperature": 0.9
+        "max_tokens": 120
     }
 
     try:
@@ -158,122 +101,144 @@ def get_ai_response(user_id, user_message):
 
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-        if not reply:
-            return "lost my train of thought"
+        # rate limit or fail fallback
+        if not reply or "rate limit" in str(data).lower():
+            return random.choice([
+                "chat’s moving too fast… say that again",
+                "one at a time damn 😭",
+                "slow down, i’m not infinite",
+                "repeat that, lost it mid thought"
+            ])
 
         memory[user_id].append({"role": "assistant", "content": reply})
-
-        save_data({
-            "memory": memory,
-            "profiles": user_profiles,
-            "jokes": inside_jokes
-        })
-
         return reply
 
     except Exception as e:
         print(e)
-        return "something’s off"
+        return random.choice([
+            "something broke 😭",
+            "my brain lagged",
+            "yeah that didn’t process",
+            "try that again"
+        ])
 
-# -------- RANDOM STARTER (FIXED) -------- #
+# -------- HUMAN-LIKE FALLBACK REPLIES -------- #
 
-async def random_starter():
-    await client.wait_until_ready()
+def human_fallback(user_id, msg):
+    msg = msg.lower()
 
-    global last_message_time
+    if "hi" in msg or "hello" in msg:
+        return random.choice([
+            "yo",
+            "hey",
+            "hi… took you long enough",
+            "what’s up"
+        ])
 
-    while not client.is_closed():
-        await asyncio.sleep(60)
+    if "how are you" in msg:
+        return random.choice([
+            "alive. barely",
+            "doing better than opti",
+            "could be worse",
+            "depends who’s asking"
+        ])
 
-        if is_sleeping:
-            continue
+    if "opti" in msg:
+        return random.choice([
+            "opti still stuck on spino?",
+            "opti needs help fr",
+            "don’t bring that guy up",
+            "he still coping?"
+        ])
 
-        if time.time() - last_message_time < 120:
-            continue
-
-        for guild in client.guilds:
-            for channel in guild.text_channels:
-                if channel.name == "federico-ai":
-                    if random.random() < 0.2:
-                        starters = [
-                            "so… everyone vanished?",
-                            "this place died suddenly",
-                            "someone say something interesting",
-                            "i know one of you is lurking",
-                            "opti probably thinking about spino again"
-                        ]
-                        await channel.send(random.choice(starters))
+    return random.choice([
+        "hmm",
+        "go on",
+        "i’m listening",
+        "that’s interesting",
+        "you sure about that?",
+        "lowkey wild",
+        "explain that better"
+    ])
 
 # -------- EVENTS -------- #
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-    client.loop.create_task(random_starter())
 
 @client.event
 async def on_message(message):
-    global last_message_time, is_sleeping
+    global sleep_mode
 
     if message.author == client.user:
         return
 
-    last_message_time = time.time()
-
     user_id = str(message.author.id)
-    msg = message.content
     now = time.time()
+    msg = message.content.lower()
 
-    profile = get_profile(user_id)
+    # -------- COMMANDS -------- #
 
-    # -------- SLEEP COMMANDS -------- #
-
-    if msg.lower() in ["fed sleep", "sleep fed", "go to sleep"]:
-        is_sleeping = True
-        await message.channel.send("finally… some peace.")
+    if msg == "!sleep":
+        sleep_mode = True
+        await message.channel.send("fine. i’ll be quiet.")
         return
 
-    if msg.lower() in ["fed wake", "wake up", "wake fed"]:
-        is_sleeping = False
-        await message.channel.send("you missed me?")
+    if msg == "!wake":
+        sleep_mode = False
+        await message.channel.send("i’m back.")
         return
 
-    # block replies if sleeping
-    if is_sleeping:
+    if msg == "!favorite":
+        user_profiles[user_id]["favorite"] = True
+        await message.channel.send("noted.")
         return
 
-    # -------- JEALOUSY -------- #
-
-    if not (client.user in message.mentions):
-        profile["jealousy"] += 1
-    else:
-        profile["jealousy"] = max(0, profile["jealousy"] - 2)
-
-    # -------- SMART SPAM -------- #
-
-    spam_tracker.setdefault(user_id, [])
-    spam_tracker[user_id].append(now)
-    spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
-
-    if len(spam_tracker[user_id]) > 6:
+    if msg == "!unfavorite":
+        user_profiles[user_id]["favorite"] = False
+        await message.channel.send("back to normal.")
         return
 
-    # -------- REPLY CONDITIONS -------- #
-
-    if not (client.user in message.mentions or message.channel.name == "federico-ai"):
+    if sleep_mode:
         return
 
+    # -------- SHOULD REPLY LOGIC -------- #
+
+    should_reply = False
+
+    if client.user in message.mentions:
+        should_reply = True
+
+    elif message.channel.name == "federico-ai":
+        should_reply = True
+
+    # smart random replies so not ghosting but not spamming
+    elif random.random() < 0.4:
+        should_reply = True
+
+    if not should_reply:
+        return
+
+    # cooldown (very small)
     if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
     last_used[user_id] = now
 
+    # typing effect
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.6, 1.4))
+        await asyncio.sleep(random.uniform(0.8, 1.5))
 
-    reply = get_ai_response(user_id, msg)
+    # -------- HYBRID RESPONSE -------- #
 
-    if not reply:
+    # 60% fallback (FREE) | 40% AI
+    if random.random() < 0.6:
+        reply = human_fallback(user_id, msg)
+    else:
+        reply = get_ai_response(user_id, msg)
+
+    if not reply or reply.strip() == "":
         reply = "say that again"
 
     await message.channel.send(reply)
