@@ -15,14 +15,13 @@ client = discord.Client(intents=intents)
 memory = {}
 user_profiles = {}
 inside_jokes = {}
-user_modes = {}
 user_preferences = {}
 last_used = {}
 spam_tracker = {}
+outside_memory = {}
 
 sleep_mode = False
 crush_user = None
-roast_mode = False
 
 COOLDOWN = 1.5
 
@@ -31,19 +30,18 @@ COOLDOWN = 1.5
 BASE_PERSONALITY = """
 You are Federico.
 
-You talk like a real human on Discord.
+Talk like a real human on Discord.
 
 Style:
-- natural, casual
-- short to medium replies (unless user wants otherwise)
+- casual, natural
+- short to medium replies
 - slightly flirty sometimes
 - witty, teasing, light dark humor
 
 Behavior:
-- adapt to user preferences
-- don’t be robotic
-- don’t over-explain
-- act like a real person
+- act like a real person in chat
+- not robotic
+- not overly dramatic
 
 Extra:
 - lightly tease Opti sometimes
@@ -59,44 +57,33 @@ def get_profile(user_id):
         }
     return user_profiles[user_id]
 
-def get_user_mode(user_id):
-    return user_modes.get(user_id, "chill")
-
 # -------- USER PREFERENCES -------- #
 
 def update_preferences(user_id, msg):
     prefs = user_preferences.setdefault(user_id, {})
-
     msg = msg.lower()
 
     if "talk short" in msg:
         prefs["length"] = "short"
-
     if "talk normal" in msg:
         prefs["length"] = "normal"
-
     if "be flirty" in msg:
         prefs["style"] = "flirty"
-
     if "stop roasting" in msg:
         prefs["roast"] = False
-
     if "roast me" in msg:
         prefs["roast"] = True
 
-def get_preference_text(user_id):
+def get_pref_text(user_id):
     prefs = user_preferences.get(user_id, {})
     text = ""
 
     if prefs.get("length") == "short":
         text += "Keep replies short."
-
     if prefs.get("style") == "flirty":
         text += " Be slightly flirty."
-
     if prefs.get("roast") is False:
         text += " Avoid roasting."
-
     if prefs.get("roast") is True:
         text += " Light roasting allowed."
 
@@ -106,15 +93,25 @@ def get_preference_text(user_id):
 
 def update_jokes(user_id, msg):
     inside_jokes.setdefault(user_id, [])
-
     if len(msg.split()) <= 4:
         inside_jokes[user_id].append(msg)
-
     inside_jokes[user_id] = inside_jokes[user_id][-5:]
 
 def get_joke(user_id):
     if user_id in inside_jokes and inside_jokes[user_id]:
         return random.choice(inside_jokes[user_id])
+    return None
+
+# -------- OUTSIDE MEMORY (NEW) -------- #
+
+def store_outside(user_id, msg):
+    outside_memory.setdefault(user_id, [])
+    outside_memory[user_id].append(msg)
+    outside_memory[user_id] = outside_memory[user_id][-3:]
+
+def get_outside(user_id):
+    if user_id in outside_memory and outside_memory[user_id]:
+        return random.choice(outside_memory[user_id])
     return None
 
 # -------- AI -------- #
@@ -136,8 +133,6 @@ def get_ai_response(user_id, user_message):
     memory[user_id].append({"role": "user", "content": user_message})
     memory[user_id] = memory[user_id][-10:]
 
-    # -------- EXTRA BEHAVIOR -------- #
-
     extra = ""
 
     # jealousy
@@ -146,7 +141,7 @@ def get_ai_response(user_id, user_message):
 
     # crush
     if crush_user == user_id and random.random() < 0.3:
-        extra += "Be slightly warmer."
+        extra += "Be warmer."
 
     # opti
     if "opti" in user_message.lower():
@@ -157,10 +152,12 @@ def get_ai_response(user_id, user_message):
     if joke and random.random() < 0.25:
         extra += f" Reference this: '{joke}'."
 
-    # user preferences
-    pref_text = get_preference_text(user_id)
+    # outside awareness
+    outside = get_outside(user_id)
+    if outside and random.random() < 0.3:
+        extra += f" Mention this casually: '{outside}'."
 
-    system_prompt = BASE_PERSONALITY + "\n" + pref_text + "\n" + extra
+    system_prompt = BASE_PERSONALITY + "\n" + get_pref_text(user_id) + "\n" + extra
 
     payload = {
         "model": "llama3-70b-8192",
@@ -179,11 +176,10 @@ def get_ai_response(user_id, user_message):
             return random.choice([
                 "too many people talking… slow down",
                 "say that again",
-                "lost that mid-way"
+                "lost that"
             ])
 
         memory[user_id].append({"role": "assistant", "content": reply})
-
         return reply
 
     except Exception as e:
@@ -192,12 +188,12 @@ def get_ai_response(user_id, user_message):
 
 # -------- FALLBACK -------- #
 
-def fallback_reply(msg):
+def fallback():
     return random.choice([
         "hmm",
         "go on",
-        "you sure?",
         "interesting",
+        "you sure?",
         "lowkey wild"
     ])
 
@@ -209,7 +205,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global sleep_mode, crush_user, roast_mode
+    global sleep_mode, crush_user
 
     if message.author == client.user:
         return
@@ -220,9 +216,15 @@ async def on_message(message):
 
     profile = get_profile(user_id)
 
-    # update memory systems
+    # update systems
     update_preferences(user_id, msg)
     update_jokes(user_id, msg)
+
+    # -------- OUTSIDE CHANNEL LOGIC -------- #
+
+    if message.channel.name != "federico-ai":
+        store_outside(user_id, msg)  # 👀 silently remember
+        return
 
     # -------- COMMANDS -------- #
 
@@ -247,11 +249,8 @@ async def on_message(message):
     if sleep_mode:
         return
 
-    # jealousy update
-    if not (client.user in message.mentions):
-        profile["jealousy"] += 1
-    else:
-        profile["jealousy"] = max(0, profile["jealousy"] - 2)
+    # jealousy
+    profile["jealousy"] += 1
 
     # spam control
     spam_tracker.setdefault(user_id, [])
@@ -261,10 +260,7 @@ async def on_message(message):
     if len(spam_tracker[user_id]) > 6:
         return
 
-    # should reply
-    if not (client.user in message.mentions or message.channel.name == "federico-ai" or random.random() < 0.4):
-        return
-
+    # cooldown
     if user_id in last_used and now - last_used[user_id] < COOLDOWN:
         return
 
@@ -273,9 +269,9 @@ async def on_message(message):
     async with message.channel.typing():
         await asyncio.sleep(random.uniform(0.8, 1.5))
 
-    # hybrid system
+    # hybrid replies
     if random.random() < 0.5:
-        reply = fallback_reply(msg)
+        reply = fallback()
     else:
         reply = get_ai_response(user_id, msg)
 
