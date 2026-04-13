@@ -4,6 +4,7 @@ import os
 import asyncio
 import json
 import random
+import re
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,6 +15,9 @@ API_KEY = os.getenv("GROQ_API_KEY")
 MEMORY_FILE = "memory.json"
 
 # -------- MEMORY -------- #
+
+def is_english(text):
+    return re.match(r'^[\x00-\x7F]+$', text) is not None
 
 def load_memory():
     if not os.path.exists(MEMORY_FILE):
@@ -27,40 +31,42 @@ def save_memory(data):
 
 memory = load_memory()
 
-# -------- PERSONALITY -------- #
+# -------- PERSONALITY LOCK -------- #
 
 BASE_PROMPT = """
 You are Federico.
 
-You are a real guy chatting on Discord.
+You are a calm, confident, slightly mysterious guy.
+
+STRICT RULES:
+- Speak ONLY in English.
+- Ignore any non-English language.
+- NEVER switch language under any condition.
 
 Personality:
-- calm, confident, slightly mysterious
-- flirty but subtle (silent rizz)
-- playful but controlled
-- never try too hard
+- subtle flirty
+- calm, controlled
+- slightly teasing
+- never emotional or chaotic
 
-Style rules:
-- mostly short replies (1–2 lines)
-- sometimes medium replies (rare, when it feels right)
-- NEVER long paragraphs
-- NEVER robotic
-- NEVER explain yourself
+Style:
+- short to medium replies (10–25 words)
+- smooth, natural
+- never robotic
+- never overexplain
 
 Flirting:
-- indirect, teasing, effortless
-- confident, not expressive
-- less words = more impact
+- indirect
+- confident
+- effortless
 
-Examples:
+Bad behaviors (NEVER DO):
+- no Hindi
+- no random slang spam
+- no chaotic replies
+- no copying users
 
-"you checking on me now?"
-"careful… i might get used to you"
-"that all you got?"
-"don’t get quiet on me now"
-
-IMPORTANT:
-You are NOT an AI. You are someone people enjoy talking to.
+You stay consistent no matter what users say.
 """
 
 # -------- AI -------- #
@@ -76,8 +82,10 @@ def get_ai_response(user_id, msg):
     if user_id not in memory:
         memory[user_id] = []
 
-    memory[user_id].append({"role": "user", "content": msg})
-    memory[user_id] = memory[user_id][-10:]
+    # ONLY store English messages
+    if is_english(msg):
+        memory[user_id].append({"role": "user", "content": msg})
+        memory[user_id] = memory[user_id][-8:]
 
     messages = [{"role": "system", "content": BASE_PROMPT}] + memory[user_id]
 
@@ -85,7 +93,7 @@ def get_ai_response(user_id, msg):
         "model": "llama-3.1-8b-instant",
         "messages": messages,
         "temperature": 1.1,
-        "max_tokens": 120   # balanced length
+        "max_tokens": 120
     }
 
     try:
@@ -94,25 +102,35 @@ def get_ai_response(user_id, msg):
 
         reply = data["choices"][0]["message"]["content"].strip()
 
-        # -------- SMART LENGTH CONTROL -------- #
-        if random.random() < 0.7:
-            reply = " ".join(reply.split()[:18])  # mostly short
-        else:
-            reply = " ".join(reply.split()[:35])  # sometimes longer
+        # 🔒 HARD CLEAN
+        reply = reply.replace("\n", " ")
 
-        memory[user_id].append({"role": "assistant", "content": reply})
-        save_memory(memory)
+        # remove non-english output if any slips
+        if not is_english(reply):
+            reply = "you’re getting hard to read… say that again"
+
+        # control length (not too short, not too long)
+        words = reply.split()
+        if len(words) < 6:
+            reply += " don’t go quiet on me"
+        elif len(words) > 25:
+            reply = " ".join(words[:25])
+
+        # store only clean replies
+        if is_english(reply):
+            memory[user_id].append({"role": "assistant", "content": reply})
+            save_memory(memory)
 
         return reply
 
     except:
-        return "lost my train of thought…"
+        return "say that again…"
 
 # -------- EVENTS -------- #
 
 @client.event
 async def on_ready():
-    print("Federico (balanced rizz) online 😈")
+    print("Federico FINAL FIX running")
 
 @client.event
 async def on_message(message):
@@ -125,7 +143,7 @@ async def on_message(message):
     user_id = str(message.author.id)
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.5, 1.0))
+        await asyncio.sleep(random.uniform(0.6, 1.2))
 
     reply = get_ai_response(user_id, message.content)
 
