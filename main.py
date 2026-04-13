@@ -2,7 +2,6 @@ import discord
 import requests
 import os
 import asyncio
-import random
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -11,46 +10,41 @@ client = discord.Client(intents=intents)
 
 memory = {}
 
-# -------- PERSONALITY -------- #
+# -------- CORE PERSONALITY -------- #
 
 BASE_PERSONALITY = """
 You are Federico.
 
-You are a real guy in a Discord server.
+You are a real guy chatting on Discord.
 
-Personality:
-- calm
-- confident
-- slightly flirty
-- witty
-- a bit sarcastic sometimes
+Rules:
+- keep replies SHORT (max 1–2 lines)
+- react, don’t explain
+- don’t be polite or formal
+- don’t act like AI
+- don’t overthink
 
 Style:
-- short replies (1–2 lines usually)
-- natural texting
-- no long paragraphs
-- no roleplay (*smiles*, etc)
-- no assistant tone
+- casual
+- slightly flirty
+- slightly sarcastic
+- confident
 
 Behavior:
+- reply like a real person texting fast
 - sometimes tease
 - sometimes be dry
-- sometimes playful
-- but stay smooth and consistent
+- don’t always answer perfectly
 
-IMPORTANT:
-- do NOT act random or chaotic
-- do NOT over-explain
-- do NOT sound like AI
-- do NOT write essays
+BAD:
+"I think that is interesting because..."
+"That’s a great question..."
 
-Examples:
-"yo"
+GOOD:
+"lol what"
 "you serious?"
-"you're just noticing?"
-"nah that's wild"
-
-Stay natural.
+"nah that’s weird"
+"you always like this?"
 """
 
 # -------- AI FUNCTION -------- #
@@ -67,14 +61,18 @@ def get_ai_response(user_id, user_message):
     if user_id not in memory:
         memory[user_id] = []
 
+    # keep short memory
     memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-10:]
+    memory[user_id] = memory[user_id][-6:]
 
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "system", "content": BASE_PERSONALITY}] + memory[user_id],
-        "max_tokens": 60,
-        "temperature": 0.9
+        "messages": [
+            {"role": "system", "content": BASE_PERSONALITY},
+            {"role": "user", "content": user_message}  # 🔥 ONLY LAST MSG (important)
+        ],
+        "max_tokens": 40,
+        "temperature": 0.8
     }
 
     try:
@@ -89,14 +87,11 @@ def get_ai_response(user_id, user_message):
         if not reply:
             return None
 
-        # -------- CLEAN OUTPUT -------- #
         reply = reply.strip()
 
-        # cut long replies
-        if len(reply.split()) > 35:
-            reply = reply.split(".")[0]
-
-        memory[user_id].append({"role": "assistant", "content": reply})
+        # HARD CUT LONG RESPONSES
+        if len(reply.split()) > 20:
+            reply = " ".join(reply.split()[:20])
 
         return reply
 
@@ -110,16 +105,11 @@ def smart_backup(msg):
     msg = msg.lower()
 
     if "hi" in msg:
-        return "hey"
+        return "yo"
     if "how are" in msg:
-        return "i'm good, you?"
+        return "fine. you?"
     
-    return random.choice([
-        "what",
-        "say that again",
-        "you good?",
-        "go on"
-    ])
+    return "what"
 
 
 # -------- EVENTS -------- #
@@ -141,7 +131,7 @@ async def on_message(message):
     msg = message.content
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.6, 1.0))
+        await asyncio.sleep(0.6)
 
     reply = get_ai_response(user_id, msg)
 
@@ -150,7 +140,5 @@ async def on_message(message):
 
     await message.channel.send(reply)
 
-
-# -------- RUN -------- #
 
 client.run(os.getenv("TOKEN"))
