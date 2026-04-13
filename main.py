@@ -20,7 +20,7 @@ def analyze_message(message):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY},
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
@@ -59,7 +59,6 @@ def get_user_profile(user_id):
     profile = user_profiles[user_id]
     profile["messages"] += 1
 
-    # evolve vibe
     if profile["messages"] > 20:
         profile["vibe"] = "playful"
     elif profile["messages"] > 5:
@@ -85,14 +84,7 @@ Rules:
 - short replies
 - natural human texting
 - adapt to user vibe
-
-If vibe is:
-neutral → normal
-friendly → warmer
-playful → tease slightly
-
-No AI tone.
-No long replies.
+- no AI tone
 
 Reply:
 """
@@ -103,7 +95,7 @@ def get_ai_response(user_id, msg):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY},
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
