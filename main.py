@@ -11,6 +11,48 @@ client = discord.Client(intents=intents)
 
 memory = {}
 
+# -------- PERSONALITY -------- #
+
+BASE_PERSONALITY = """
+You are Federico.
+
+You are a real guy in a Discord server.
+
+Personality:
+- calm
+- confident
+- slightly flirty
+- witty
+- a bit sarcastic sometimes
+
+Style:
+- short replies (1–2 lines usually)
+- natural texting
+- no long paragraphs
+- no roleplay (*smiles*, etc)
+- no assistant tone
+
+Behavior:
+- sometimes tease
+- sometimes be dry
+- sometimes playful
+- but stay smooth and consistent
+
+IMPORTANT:
+- do NOT act random or chaotic
+- do NOT over-explain
+- do NOT sound like AI
+- do NOT write essays
+
+Examples:
+"yo"
+"you serious?"
+"you're just noticing?"
+"nah that's wild"
+
+Stay natural.
+"""
+
 # -------- AI FUNCTION -------- #
 
 def get_ai_response(user_id, user_message):
@@ -25,55 +67,18 @@ def get_ai_response(user_id, user_message):
     if user_id not in memory:
         memory[user_id] = []
 
-    # store message
     memory[user_id].append({"role": "user", "content": user_message})
     memory[user_id] = memory[user_id][-10:]
 
-    # -------- RANDOM MOOD -------- #
-    moods = ["normal", "dry", "playful", "flirty", "slightly rude"]
-    mood = random.choice(moods)
-
-    # -------- DYNAMIC PERSONALITY -------- #
-    personality = f"""
-You are Federico.
-
-Current mood: {mood}
-
-Talk like a real human in Discord.
-
-Rules:
-- short replies mostly (1–2 lines)
-- sometimes 1 word replies
-- sometimes dry
-- sometimes teasing
-- sometimes ignore parts of message
-
-IMPORTANT:
-- never sound like AI
-- no long explanations
-- no roleplay (*smiles*, etc)
-- be slightly unpredictable
-
-Examples:
-user: hi → "yo" / "hm" / "you again?"
-user: how are you → "alive" / "could be worse"
-user: you interesting → "you just noticed?"
-
-Stay human.
-"""
-
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "system", "content": personality}] + memory[user_id],
-        "max_tokens": random.randint(20, 60),
-        "temperature": 1.2
+        "messages": [{"role": "system", "content": BASE_PERSONALITY}] + memory[user_id],
+        "max_tokens": 60,
+        "temperature": 0.9
     }
 
     try:
         res = requests.post(url, headers=headers, json=payload)
-
-        print("STATUS:", res.status_code)
-        print("RAW:", res.text)
 
         if res.status_code != 200:
             return None
@@ -84,20 +89,18 @@ Stay human.
         if not reply:
             return None
 
-        # -------- ANTI-LONG REPLY -------- #
-        if len(reply.split()) > 30:
-            reply = reply.split(".")[0]
+        # -------- CLEAN OUTPUT -------- #
+        reply = reply.strip()
 
-        # -------- RANDOM SHORT CUT -------- #
-        if random.random() < 0.25:
-            reply = reply.split("\n")[0]
+        # cut long replies
+        if len(reply.split()) > 35:
+            reply = reply.split(".")[0]
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
         return reply
 
-    except Exception as e:
-        print("ERROR:", e)
+    except:
         return None
 
 
@@ -109,11 +112,11 @@ def smart_backup(msg):
     if "hi" in msg:
         return "hey"
     if "how are" in msg:
-        return "i'm fine, you?"
+        return "i'm good, you?"
     
     return random.choice([
-        "say that again",
         "what",
+        "say that again",
         "you good?",
         "go on"
     ])
@@ -131,7 +134,6 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # only respond in this channel
     if message.channel.name != "federico-ai":
         return
 
@@ -139,7 +141,7 @@ async def on_message(message):
     msg = message.content
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.5, 1.0))
+        await asyncio.sleep(random.uniform(0.6, 1.0))
 
     reply = get_ai_response(user_id, msg)
 
