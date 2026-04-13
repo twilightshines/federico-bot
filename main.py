@@ -39,7 +39,7 @@ Style:
 - witty, teasing, light dark humor
 
 Behavior:
-- act like a real person in chat
+- act like a real person
 - not robotic
 - not overly dramatic
 
@@ -102,7 +102,7 @@ def get_joke(user_id):
         return random.choice(inside_jokes[user_id])
     return None
 
-# -------- OUTSIDE MEMORY (NEW) -------- #
+# -------- OUTSIDE MEMORY -------- #
 
 def store_outside(user_id, msg):
     outside_memory.setdefault(user_id, [])
@@ -114,7 +114,7 @@ def get_outside(user_id):
         return random.choice(outside_memory[user_id])
     return None
 
-# -------- AI -------- #
+# -------- AI FUNCTION (FIXED) -------- #
 
 def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -135,32 +135,27 @@ def get_ai_response(user_id, user_message):
 
     extra = ""
 
-    # jealousy
     if profile["jealousy"] > 6 and random.random() < 0.3:
         extra += "Sound slightly jealous."
 
-    # crush
     if crush_user == user_id and random.random() < 0.3:
-        extra += "Be warmer."
+        extra += "Be slightly warmer."
 
-    # opti
     if "opti" in user_message.lower():
         extra += "Make a light joke about Opti."
 
-    # inside joke
     joke = get_joke(user_id)
-    if joke and random.random() < 0.25:
-        extra += f" Reference this: '{joke}'."
+    if joke and random.random() < 0.2:
+        extra += f" Reference this casually: '{joke}'."
 
-    # outside awareness
     outside = get_outside(user_id)
-    if outside and random.random() < 0.3:
+    if outside and random.random() < 0.2:
         extra += f" Mention this casually: '{outside}'."
 
     system_prompt = BASE_PERSONALITY + "\n" + get_pref_text(user_id) + "\n" + extra
 
     payload = {
-        "model": "llama3-70b-8192",
+        "model": "llama3-8b-8192",  # ✅ FIXED (fast + stable)
         "messages": [{"role": "system", "content": system_prompt}] + memory[user_id],
         "max_tokens": 120,
         "temperature": 0.9
@@ -170,31 +165,38 @@ def get_ai_response(user_id, user_message):
         res = requests.post(url, headers=headers, json=payload)
         data = res.json()
 
-        reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        print(data)  # 🔍 DEBUG
 
-        if not reply or "rate limit" in str(data).lower():
-            return random.choice([
-                "too many people talking… slow down",
-                "say that again",
-                "lost that"
-            ])
+        # SAFE extraction
+        choices = data.get("choices")
+        if not choices:
+            return None
+
+        message = choices[0].get("message")
+        if not message:
+            return None
+
+        reply = message.get("content")
+        if not reply or reply.strip() == "":
+            return None
 
         memory[user_id].append({"role": "assistant", "content": reply})
         return reply
 
     except Exception as e:
-        print(e)
-        return "something broke"
+        print("ERROR:", e)
+        return None
 
-# -------- FALLBACK -------- #
+# -------- FALLBACK (SMART) -------- #
 
 def fallback():
     return random.choice([
         "hmm",
         "go on",
-        "interesting",
         "you sure?",
-        "lowkey wild"
+        "interesting",
+        "lowkey wild",
+        "continue"
     ])
 
 # -------- EVENTS -------- #
@@ -216,14 +218,12 @@ async def on_message(message):
 
     profile = get_profile(user_id)
 
-    # update systems
     update_preferences(user_id, msg)
     update_jokes(user_id, msg)
 
-    # -------- OUTSIDE CHANNEL LOGIC -------- #
-
+    # 👀 OUTSIDE CHANNEL = ONLY WATCH
     if message.channel.name != "federico-ai":
-        store_outside(user_id, msg)  # 👀 silently remember
+        store_outside(user_id, msg)
         return
 
     # -------- COMMANDS -------- #
@@ -249,7 +249,6 @@ async def on_message(message):
     if sleep_mode:
         return
 
-    # jealousy
     profile["jealousy"] += 1
 
     # spam control
@@ -267,17 +266,16 @@ async def on_message(message):
     last_used[user_id] = now
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.8, 1.5))
+        await asyncio.sleep(random.uniform(0.8, 1.4))
 
-    # hybrid replies
-    if random.random() < 0.5:
-        reply = fallback()
-    else:
-        reply = get_ai_response(user_id, msg)
+    # 🔥 FIXED HYBRID (AI FIRST)
+    reply = get_ai_response(user_id, msg)
 
     if not reply:
-        reply = "say that again"
+        reply = fallback()
 
     await message.channel.send(reply)
+
+# -------- RUN -------- #
 
 client.run(os.getenv("TOKEN"))
