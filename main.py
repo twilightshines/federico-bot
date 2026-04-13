@@ -35,6 +35,10 @@ spam_tracker = {}
 
 COOLDOWN = 1.5
 
+# -------- SLEEP SYSTEM -------- #
+is_sleeping = False
+last_message_time = time.time()
+
 # -------- PERSONALITY -------- #
 
 BASE_PERSONALITY = """
@@ -43,7 +47,7 @@ You are Federico.
 Talk like a real person in Discord.
 
 Personality:
-- flirty, confident, playful
+- confident, flirty, playful
 - dark humor sometimes
 - slightly dirty-minded (suggestive, not explicit)
 - sarcastic and witty
@@ -62,8 +66,12 @@ Lore:
 - dislike NEET exam
 - roast Opti (obsessed with Spino)
 
+Rules:
+- no AI talk
+- no long messages
+
 Goal:
-Be fun, addictive, unpredictable.
+Be fun, addictive, human-like.
 """
 
 # -------- PROFILE -------- #
@@ -72,7 +80,6 @@ def get_profile(user_id):
     if user_id not in user_profiles:
         user_profiles[user_id] = {
             "bond": 0,
-            "mood": "normal",
             "jealousy": 0
         }
     return user_profiles[user_id]
@@ -84,14 +91,14 @@ def dynamic_tone(user_id):
     tone = ""
 
     if p["bond"] > 20:
-        tone += "You know them well. Be more teasing and playful."
+        tone += "You know them well. Be more teasing."
     elif p["bond"] > 10:
-        tone += "You’re familiar. Light teasing."
+        tone += "Light teasing."
     else:
-        tone += "Still figuring them out."
+        tone += "Observing."
 
     if p["jealousy"] > 5:
-        tone += " Slight jealous vibe."
+        tone += " Slight jealous tone."
 
     return tone
 
@@ -100,7 +107,7 @@ def dynamic_tone(user_id):
 def update_jokes(user_id, msg):
     inside_jokes.setdefault(user_id, [])
 
-    if len(msg.split()) <= 4:  # short phrases become jokes
+    if len(msg.split()) <= 4:
         inside_jokes[user_id].append(msg)
 
     inside_jokes[user_id] = inside_jokes[user_id][-5:]
@@ -142,7 +149,7 @@ def get_ai_response(user_id, user_message):
         "model": "openai/gpt-3.5-turbo",
         "messages": messages,
         "max_tokens": 120,
-        "temperature": 0.95
+        "temperature": 0.9
     }
 
     try:
@@ -168,23 +175,31 @@ def get_ai_response(user_id, user_message):
         print(e)
         return "something’s off"
 
-# -------- RANDOM STARTER -------- #
+# -------- RANDOM STARTER (FIXED) -------- #
 
 async def random_starter():
     await client.wait_until_ready()
 
+    global last_message_time
+
     while not client.is_closed():
-        await asyncio.sleep(random.randint(60, 180))  # every 1–3 min
+        await asyncio.sleep(60)
+
+        if is_sleeping:
+            continue
+
+        if time.time() - last_message_time < 120:
+            continue
 
         for guild in client.guilds:
             for channel in guild.text_channels:
                 if channel.name == "federico-ai":
-                    if random.random() < 0.4:
+                    if random.random() < 0.2:
                         starters = [
-                            "why is it so quiet here",
+                            "so… everyone vanished?",
+                            "this place died suddenly",
                             "someone say something interesting",
-                            "this silence is suspicious",
-                            "i know one of you is bored",
+                            "i know one of you is lurking",
                             "opti probably thinking about spino again"
                         ]
                         await channel.send(random.choice(starters))
@@ -198,8 +213,12 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    global last_message_time, is_sleeping
+
     if message.author == client.user:
         return
+
+    last_message_time = time.time()
 
     user_id = str(message.author.id)
     msg = message.content
@@ -207,13 +226,31 @@ async def on_message(message):
 
     profile = get_profile(user_id)
 
-    # jealousy
+    # -------- SLEEP COMMANDS -------- #
+
+    if msg.lower() in ["fed sleep", "sleep fed", "go to sleep"]:
+        is_sleeping = True
+        await message.channel.send("finally… some peace.")
+        return
+
+    if msg.lower() in ["fed wake", "wake up", "wake fed"]:
+        is_sleeping = False
+        await message.channel.send("you missed me?")
+        return
+
+    # block replies if sleeping
+    if is_sleeping:
+        return
+
+    # -------- JEALOUSY -------- #
+
     if not (client.user in message.mentions):
         profile["jealousy"] += 1
     else:
         profile["jealousy"] = max(0, profile["jealousy"] - 2)
 
-    # spam control
+    # -------- SMART SPAM -------- #
+
     spam_tracker.setdefault(user_id, [])
     spam_tracker[user_id].append(now)
     spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
@@ -221,7 +258,8 @@ async def on_message(message):
     if len(spam_tracker[user_id]) > 6:
         return
 
-    # only respond in channel or mention
+    # -------- REPLY CONDITIONS -------- #
+
     if not (client.user in message.mentions or message.channel.name == "federico-ai"):
         return
 
@@ -239,5 +277,7 @@ async def on_message(message):
         reply = "say that again"
 
     await message.channel.send(reply)
+
+# -------- RUN -------- #
 
 client.run(os.getenv("TOKEN"))
