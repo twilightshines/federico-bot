@@ -12,68 +12,74 @@ client = discord.Client(intents=intents)
 
 API_KEY = os.getenv("GROQ_API_KEY")
 MEMORY_FILE = "memory.json"
-PROFILE_FILE = "profiles.json"
 
-# -------- LOAD -------- #
+# -------- MEMORY -------- #
 
-def load_json(file):
-    if not os.path.exists(file):
+def load_memory():
+    if not os.path.exists(MEMORY_FILE):
         return {}
-    with open(file, "r") as f:
+    with open(MEMORY_FILE, "r") as f:
         return json.load(f)
 
-def save_json(file, data):
-    with open(file, "w") as f:
+def save_memory(data):
+    with open(MEMORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-memory = load_json(MEMORY_FILE)
-profiles = load_json(PROFILE_FILE)
-
-# -------- PROFILE SYSTEM -------- #
-
-def get_profile(user_id):
-    if user_id not in profiles:
-        profiles[user_id] = {
-            "messages": 0,
-            "crush": False,
-            "style": "normal",
-            "inside_jokes": []
-        }
-    return profiles[user_id]
+memory = load_memory()
 
 # -------- PERSONALITY -------- #
 
 BASE_PROMPT = """
 You are Federico.
 
-You are a real human in a Discord chat.
+You are a real guy in a Discord chat.
 
 Personality:
-- flirty, smooth, confident
-- playful teasing
-- slightly possessive sometimes
-- emotionally reactive
+- calm, confident, slightly mysterious
+- flirty but subtle (never obvious)
+- playful but controlled
+- never try too hard
 
-Behavior rules:
-- NEVER give dry replies
-- ALWAYS continue the conversation
-- react to tone (short replies = tease them)
-- flirt more if comfortable
-- sometimes act jealous playfully
+CRITICAL STYLE RULES:
+- keep replies SHORT (1–2 lines max)
+- NEVER explain yourself
+- NEVER overtalk
+- use minimal words with strong impact
+- sometimes one-liners are enough
 
-Style:
-- natural texting
-- short to medium replies (2–4 lines)
-- lowercase sometimes
-- casual, not formal
+Flirting style:
+- indirect, teasing, effortless
+- no cringe lines
+- no long paragraphs
+- confidence > words
+
+Examples:
+
+bad:
+"you're trying to check my pulse huh well i've got better things..."
+
+good:
+"you checking on me now?"
+
+bad:
+"i like how you talk..."
+
+good:
+"careful… i might get used to you"
+
+bad:
+"i'm good, how are you?"
+
+good:
+"i was better before you asked"
 
 IMPORTANT:
-You are NOT an assistant. You are a person people get attached to.
+You are NOT an assistant. You are someone people get curious about.
 """
 
 # -------- AI -------- #
 
-def get_ai_response(user_id, username, msg):
+def get_ai_response(user_id, msg):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
@@ -81,43 +87,19 @@ def get_ai_response(user_id, username, msg):
         "Content-Type": "application/json"
     }
 
-    profile = get_profile(user_id)
-    profile["messages"] += 1
-
-    # ---- detect preferences ---- #
-    if "short" in msg.lower():
-        profile["style"] = "short"
-    if "flirty" in msg.lower():
-        profile["style"] = "flirty"
-
-    # ---- memory ---- #
     if user_id not in memory:
         memory[user_id] = []
 
     memory[user_id].append({"role": "user", "content": msg})
-    memory[user_id] = memory[user_id][-12:]
+    memory[user_id] = memory[user_id][-10:]
 
-    # ---- dynamic behavior ---- #
-    mood = ""
-
-    if profile["crush"]:
-        mood += "You secretly like this user. Be more flirty and attentive.\n"
-
-    if profile["messages"] > 20:
-        mood += "You are comfortable with this user. Tease more.\n"
-
-    if len(msg.split()) <= 2:
-        mood += "User gave a dry reply. Tease them for it.\n"
-
-    system_prompt = BASE_PROMPT + "\n" + mood
-
-    messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
+    messages = [{"role": "system", "content": BASE_PROMPT}] + memory[user_id]
 
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": messages,
-        "temperature": 1.1,
-        "max_tokens": 180
+        "temperature": 1.2,
+        "max_tokens": 60   # 🔥 HARD LIMIT FOR SHORT STYLE
     }
 
     try:
@@ -126,25 +108,23 @@ def get_ai_response(user_id, username, msg):
 
         reply = data["choices"][0]["message"]["content"].strip()
 
-        # prevent dry reply
-        if len(reply.split()) < 3:
-            reply += "... that's it? try again."
+        # trim if too long
+        if len(reply.split()) > 20:
+            reply = " ".join(reply.split()[:20])
 
         memory[user_id].append({"role": "assistant", "content": reply})
-
-        save_json(MEMORY_FILE, memory)
-        save_json(PROFILE_FILE, profiles)
+        save_memory(memory)
 
         return reply
 
     except:
-        return "lost focus… say that again"
+        return "lost my train of thought…"
 
 # -------- EVENTS -------- #
 
 @client.event
 async def on_ready():
-    print("Federico v3 online 😈")
+    print("Federico (silent rizz) online 😈")
 
 @client.event
 async def on_message(message):
@@ -155,17 +135,11 @@ async def on_message(message):
         return
 
     user_id = str(message.author.id)
-    username = message.author.name
-
-    # ---- random crush assignment ---- #
-    profile = get_profile(user_id)
-    if not profile["crush"] and random.random() < 0.03:
-        profile["crush"] = True
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.6, 1.2))
+        await asyncio.sleep(random.uniform(0.5, 1.0))
 
-    reply = get_ai_response(user_id, username, message.content)
+    reply = get_ai_response(user_id, message.content)
 
     await message.channel.send(reply)
 
