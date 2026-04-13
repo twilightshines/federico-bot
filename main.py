@@ -2,6 +2,7 @@ import discord
 import requests
 import os
 import asyncio
+import json
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -10,69 +11,106 @@ client = discord.Client(intents=intents)
 
 memory = {}
 
-# -------- CORE PERSONALITY -------- #
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-BASE_PERSONALITY = """
-You are Federico.
+# -------- ANALYZER -------- #
 
-You are a real guy chatting on Discord.
-
-Rules:
-- keep replies SHORT (max 1–2 lines)
-- react, don’t explain
-- don’t be polite or formal
-- don’t act like AI
-- don’t overthink
-
-Style:
-- casual
-- slightly flirty
-- slightly sarcastic
-- confident
-
-Behavior:
-- reply like a real person texting fast
-- sometimes tease
-- sometimes be dry
-- don’t always answer perfectly
-
-BAD:
-"I think that is interesting because..."
-"That’s a great question..."
-
-GOOD:
-"lol what"
-"you serious?"
-"nah that’s weird"
-"you always like this?"
-"""
-
-# -------- AI FUNCTION -------- #
-
-def get_ai_response(user_id, user_message):
+def analyze_message(message):
     url = "https://api.groq.com/openai/v1/chat/completions"
-    api_key = os.getenv("GROQ_API_KEY")
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    if user_id not in memory:
-        memory[user_id] = []
+    prompt = f"""
+Analyze this Discord message and return JSON only.
 
-    # keep short memory
-    memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-6:]
+Message: "{message}"
+
+Return format:
+{{
+  "intent": "...",
+  "emotion": "...",
+  "tone": "..."
+}}
+
+Keep it short.
+"""
 
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": [
-            {"role": "system", "content": BASE_PERSONALITY},
-            {"role": "user", "content": user_message}  # 🔥 ONLY LAST MSG (important)
-        ],
-        "max_tokens": 40,
-        "temperature": 0.8
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens": 60
+    }
+
+    try:
+        res = requests.post(url, headers=headers, json=payload)
+        data = res.json()
+        content = data["choices"][0]["message"]["content"]
+
+        return json.loads(content)
+
+    except:
+        return {
+            "intent": "chat",
+            "emotion": "neutral",
+            "tone": "casual"
+        }
+
+
+# -------- PERSONALITY -------- #
+
+def build_prompt(user_msg, analysis):
+    return f"""
+You are Federico.
+
+User message: {user_msg}
+
+Context:
+- intent: {analysis['intent']}
+- emotion: {analysis['emotion']}
+- tone: {analysis['tone']}
+
+Reply like a real human.
+
+Rules:
+- short (1–2 lines)
+- natural
+- slightly flirty sometimes
+- slightly sarcastic sometimes
+- DO NOT sound like AI
+- DO NOT explain things
+
+Good examples:
+"lol what"
+"you serious?"
+"nah that’s wild"
+
+Now reply:
+"""
+
+
+# -------- AI RESPONSE -------- #
+
+def get_ai_response(user_id, user_message):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    analysis = analyze_message(user_message)
+
+    prompt = build_prompt(user_message, analysis)
+
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.8,
+        "max_tokens": 60
     }
 
     try:
@@ -87,29 +125,10 @@ def get_ai_response(user_id, user_message):
         if not reply:
             return None
 
-        reply = reply.strip()
-
-        # HARD CUT LONG RESPONSES
-        if len(reply.split()) > 20:
-            reply = " ".join(reply.split()[:20])
-
-        return reply
+        return reply.strip()
 
     except:
         return None
-
-
-# -------- BACKUP -------- #
-
-def smart_backup(msg):
-    msg = msg.lower()
-
-    if "hi" in msg:
-        return "yo"
-    if "how are" in msg:
-        return "fine. you?"
-    
-    return "what"
 
 
 # -------- EVENTS -------- #
@@ -117,7 +136,6 @@ def smart_backup(msg):
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-
 
 @client.event
 async def on_message(message):
@@ -127,16 +145,16 @@ async def on_message(message):
     if message.channel.name != "federico-ai":
         return
 
-    user_id = str(message.author.id)
     msg = message.content
+    user_id = str(message.author.id)
 
     async with message.channel.typing():
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.7)
 
     reply = get_ai_response(user_id, msg)
 
     if not reply:
-        reply = smart_backup(msg)
+        reply = "what"
 
     await message.channel.send(reply)
 
