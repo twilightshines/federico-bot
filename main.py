@@ -23,7 +23,7 @@ outside_memory = {}
 sleep_mode = False
 crush_user = None
 
-COOLDOWN = 1.5
+COOLDOWN = 1.2
 
 # -------- PERSONALITY -------- #
 
@@ -42,6 +42,7 @@ Behavior:
 - act like a real person
 - not robotic
 - not overly dramatic
+- respond properly to what user says (no random replies)
 
 Extra:
 - lightly tease Opti sometimes
@@ -93,7 +94,7 @@ def get_pref_text(user_id):
 
 def update_jokes(user_id, msg):
     inside_jokes.setdefault(user_id, [])
-    if len(msg.split()) <= 4:
+    if len(msg.split()) <= 5:
         inside_jokes[user_id].append(msg)
     inside_jokes[user_id] = inside_jokes[user_id][-5:]
 
@@ -109,12 +110,7 @@ def store_outside(user_id, msg):
     outside_memory[user_id].append(msg)
     outside_memory[user_id] = outside_memory[user_id][-3:]
 
-def get_outside(user_id):
-    if user_id in outside_memory and outside_memory[user_id]:
-        return random.choice(outside_memory[user_id])
-    return None
-
-# -------- AI FUNCTION (FIXED) -------- #
+# -------- AI FUNCTION (FINAL FIXED) -------- #
 
 def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -148,55 +144,51 @@ def get_ai_response(user_id, user_message):
     if joke and random.random() < 0.2:
         extra += f" Reference this casually: '{joke}'."
 
-    outside = get_outside(user_id)
-    if outside and random.random() < 0.2:
-        extra += f" Mention this casually: '{outside}'."
-
     system_prompt = BASE_PERSONALITY + "\n" + get_pref_text(user_id) + "\n" + extra
 
     payload = {
-        "model": "llama3-8b-8192",  # ✅ FIXED (fast + stable)
+        "model": "llama3-8b-8192",
         "messages": [{"role": "system", "content": system_prompt}] + memory[user_id],
         "max_tokens": 120,
         "temperature": 0.9
     }
 
-    try:
-        res = requests.post(url, headers=headers, json=payload)
-        data = res.json()
+    # 🔁 RETRY SYSTEM (IMPORTANT FIX)
+    for _ in range(2):
+        try:
+            res = requests.post(url, headers=headers, json=payload, timeout=10)
+            data = res.json()
 
-        print(data)  # 🔍 DEBUG
+            choices = data.get("choices")
+            if not choices:
+                continue
 
-        # SAFE extraction
-        choices = data.get("choices")
-        if not choices:
-            return None
+            message = choices[0].get("message")
+            if not message:
+                continue
 
-        message = choices[0].get("message")
-        if not message:
-            return None
+            reply = message.get("content")
+            if not reply or reply.strip() == "":
+                continue
 
-        reply = message.get("content")
-        if not reply or reply.strip() == "":
-            return None
+            memory[user_id].append({"role": "assistant", "content": reply})
+            return reply
 
-        memory[user_id].append({"role": "assistant", "content": reply})
-        return reply
+        except Exception as e:
+            print("Retry error:", e)
 
-    except Exception as e:
-        print("ERROR:", e)
-        return None
+    return None
 
-# -------- FALLBACK (SMART) -------- #
+# -------- SMART FALLBACK -------- #
 
 def fallback():
     return random.choice([
-        "hmm",
-        "go on",
-        "you sure?",
-        "interesting",
-        "lowkey wild",
-        "continue"
+        "you paused mid thought?",
+        "nah say that properly",
+        "that didn’t sound complete",
+        "you good? finish that",
+        "don’t ghost mid sentence",
+        "try that again but clearer"
     ])
 
 # -------- EVENTS -------- #
@@ -221,7 +213,7 @@ async def on_message(message):
     update_preferences(user_id, msg)
     update_jokes(user_id, msg)
 
-    # 👀 OUTSIDE CHANNEL = ONLY WATCH
+    # 👀 ONLY WATCH OUTSIDE CHANNEL
     if message.channel.name != "federico-ai":
         store_outside(user_id, msg)
         return
@@ -266,9 +258,9 @@ async def on_message(message):
     last_used[user_id] = now
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.8, 1.4))
+        await asyncio.sleep(random.uniform(0.8, 1.3))
 
-    # 🔥 FIXED HYBRID (AI FIRST)
+    # 🔥 MAIN RESPONSE
     reply = get_ai_response(user_id, msg)
 
     if not reply:
