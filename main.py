@@ -2,7 +2,7 @@ import discord
 import requests
 import os
 import asyncio
-import time
+import random
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -11,55 +11,11 @@ client = discord.Client(intents=intents)
 
 memory = {}
 
-# -------- PERSONALITY -------- #
-
-BASE_PERSONALITY = """
-You are Federico.
-
-You are NOT an AI. You are a real person in a Discord server.
-
-Behavior:
-- talk like a real human texting
-- short messages (1–2 lines max MOST of the time)
-- never write long paragraphs
-- never act like an assistant
-- no roleplay (*smiles*, etc)
-
-Personality:
-- confident
-- slightly flirty
-- witty
-- a bit sarcastic
-
-Style:
-- casual texting
-- sometimes lowercase
-- sometimes dry
-- sometimes teasing
-
-IMPORTANT:
-- DO NOT write long replies
-- DO NOT sound like ChatGPT
-- DO NOT over-explain
-
-Examples:
-✔ "you serious?"
-✔ "nah that's wild"
-✔ "you always like this?"
-✔ "lmao what"
-
-Stay human.
-"""
-
 # -------- AI FUNCTION -------- #
 
 def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
-
     api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-        return "api key missing"
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -71,22 +27,46 @@ def get_ai_response(user_id, user_message):
 
     # store message
     memory[user_id].append({"role": "user", "content": user_message})
-
-    # simple memory (last 10 messages)
     memory[user_id] = memory[user_id][-10:]
 
-    # store simple facts
-    if "i like" in user_message.lower():
-        memory[user_id].append({
-            "role": "system",
-            "content": f"user likes: {user_message}"
-        })
+    # -------- RANDOM MOOD -------- #
+    moods = ["normal", "dry", "playful", "flirty", "slightly rude"]
+    mood = random.choice(moods)
+
+    # -------- DYNAMIC PERSONALITY -------- #
+    personality = f"""
+You are Federico.
+
+Current mood: {mood}
+
+Talk like a real human in Discord.
+
+Rules:
+- short replies mostly (1–2 lines)
+- sometimes 1 word replies
+- sometimes dry
+- sometimes teasing
+- sometimes ignore parts of message
+
+IMPORTANT:
+- never sound like AI
+- no long explanations
+- no roleplay (*smiles*, etc)
+- be slightly unpredictable
+
+Examples:
+user: hi → "yo" / "hm" / "you again?"
+user: how are you → "alive" / "could be worse"
+user: you interesting → "you just noticed?"
+
+Stay human.
+"""
 
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "system", "content": BASE_PERSONALITY}] + memory[user_id],
-        "max_tokens": 60,
-        "temperature": 0.9
+        "messages": [{"role": "system", "content": personality}] + memory[user_id],
+        "max_tokens": random.randint(20, 60),
+        "temperature": 1.2
     }
 
     try:
@@ -104,11 +84,14 @@ def get_ai_response(user_id, user_message):
         if not reply:
             return None
 
-        # -------- ANTI-AI LONG MESSAGE CUT -------- #
-        if len(reply.split()) > 40:
+        # -------- ANTI-LONG REPLY -------- #
+        if len(reply.split()) > 30:
             reply = reply.split(".")[0]
 
-        # store assistant reply
+        # -------- RANDOM SHORT CUT -------- #
+        if random.random() < 0.25:
+            reply = reply.split("\n")[0]
+
         memory[user_id].append({"role": "assistant", "content": reply})
 
         return reply
@@ -118,7 +101,7 @@ def get_ai_response(user_id, user_message):
         return None
 
 
-# -------- SMART BACKUP (RARE USE) -------- #
+# -------- BACKUP -------- #
 
 def smart_backup(msg):
     msg = msg.lower()
@@ -126,9 +109,14 @@ def smart_backup(msg):
     if "hi" in msg:
         return "hey"
     if "how are" in msg:
-        return "i'm good, you?"
+        return "i'm fine, you?"
     
-    return "say that properly"
+    return random.choice([
+        "say that again",
+        "what",
+        "you good?",
+        "go on"
+    ])
 
 
 # -------- EVENTS -------- #
@@ -143,7 +131,7 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    # ONLY RESPOND IN THIS CHANNEL
+    # only respond in this channel
     if message.channel.name != "federico-ai":
         return
 
@@ -151,7 +139,7 @@ async def on_message(message):
     msg = message.content
 
     async with message.channel.typing():
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(random.uniform(0.5, 1.0))
 
     reply = get_ai_response(user_id, msg)
 
