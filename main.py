@@ -67,9 +67,9 @@ async def generate_reply(cid, user_input):
 
         return content.strip()
 
-    except Exception as e:
-        print("GROQ ERROR FULL:", repr(e))
-        return "…brain lag, try again."
+   except Exception as e:
+    print("GROQ ERROR FULL:", repr(e))
+    return f"ERROR: {str(e)}"
 
 
 # =======================
