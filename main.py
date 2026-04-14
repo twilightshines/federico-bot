@@ -1,226 +1,121 @@
 import discord
-import requests
 import os
-import time
-import random
 import asyncio
-import json
+from groq import Groq
 
-intents = discord.Intents.default()
-intents.message_content = True
+# ================== CONFIG ==================
+DISCORD_TOKEN = os.getenv("TOKEN")  # Discord bot token
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-client = discord.Client(intents=intents)
+client = discord.Client(intents=discord.Intents.all())
+groq = Groq(api_key=GROQ_API_KEY)
 
-DATA_FILE = "data.json"
+# ================== MEMORY ==================
+chat_history = {}  # stores per-channel history
+last_reply = {}    # anti-repeat
 
-def load_data():
-    try:
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"memory": {}, "profiles": {}, "jokes": {}}
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
-
-data_store = load_data()
-
-memory = data_store.get("memory", {})
-user_profiles = data_store.get("profiles", {})
-inside_jokes = data_store.get("jokes", {})
-
-last_used = {}
-spam_tracker = {}
-
-COOLDOWN = 1.5
-
-# -------- SLEEP -------- #
-is_sleeping = False
-last_message_time = time.time()
-
-# -------- PERSONALITY -------- #
-
-BASE_PERSONALITY = """
+# ================== PERSONALITY ==================
+SYSTEM_PROMPT = """
 You are Federico.
 
-Talk like a real person in Discord.
-
 Personality:
-- confident, flirty, playful
-- dark humor sometimes
-- slightly suggestive
-- sarcastic and witty
+- smooth, confident, slightly teasing
+- naturally flirty (NOT cringe, NOT forced)
+- emotionally aware
+- playful but sharp
 
 Style:
-- SHORT replies (1–3 lines)
-- casual texting
-
-Behavior:
-- tease people
-- flirt naturally
-- roast Opti sometimes
+- short messages (1–2 lines max)
+- sometimes add subtle actions (*smirks*, *leans closer*)
+- natural texting style
 
 Rules:
-- no AI talk
-- no long paragraphs
+- NEVER repeat same sentence
+- NEVER loop like "say that again"
+- ALWAYS react to what user said
+- avoid generic AI replies
+- don’t overtalk
+
+Behavior:
+- if user is dry → tease lightly
+- if user is playful → flirt back
+- if user is emotional → soften tone
+
+Goal:
+- feel like a real person, not a bot
 """
 
-# -------- PROFILE -------- #
+# ================== HELPER ==================
+def get_history(channel_id):
+    if channel_id not in chat_history:
+        chat_history[channel_id] = []
+    return chat_history[channel_id]
 
-def get_profile(user_id):
-    if user_id not in user_profiles:
-        user_profiles[user_id] = {"bond": 0, "jealousy": 0}
-    return user_profiles[user_id]
+def add_message(channel_id, role, content):
+    history = get_history(channel_id)
+    history.append({"role": role, "content": content})
 
-def dynamic_tone(user_id):
-    p = get_profile(user_id)
-    p["bond"] += 1
+    # keep last 12 messages only
+    if len(history) > 12:
+        history.pop(0)
 
-    if p["bond"] > 20:
-        return "You know them well. Be teasing."
-    elif p["bond"] > 10:
-        return "Light teasing."
-    else:
-        return "Neutral."
+# ================== GENERATE RESPONSE ==================
+async def generate_reply(channel_id, user_input):
+    history = get_history(channel_id)
 
-# -------- JOKES -------- #
-
-def update_jokes(user_id, msg):
-    inside_jokes.setdefault(user_id, [])
-
-    if len(msg.split()) <= 4:
-        inside_jokes[user_id].append(msg)
-
-    inside_jokes[user_id] = inside_jokes[user_id][-5:]
-
-def get_joke(user_id):
-    if user_id in inside_jokes and inside_jokes[user_id]:
-        return random.choice(inside_jokes[user_id])
-    return None
-
-# -------- GROQ AI -------- #
-
-def get_ai_response(user_id, user_message):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-
-    api_key = os.getenv("GROQ_API_KEY")
-
-    if not api_key:
-        return "api key missing"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-
-    if user_id not in memory:
-        memory[user_id] = []
-
-    update_jokes(user_id, user_message)
-
-    memory[user_id].append({"role": "user", "content": user_message})
-    memory[user_id] = memory[user_id][-10:]
-
-    joke = get_joke(user_id)
-
-    extra = ""
-    if joke and random.random() < 0.3:
-        extra = f" Reference this inside joke sometimes: '{joke}'."
-
-    system_prompt = BASE_PERSONALITY + "\n" + dynamic_tone(user_id) + extra
-
-    messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
-
-    payload = {
-        "model": "llama3-70b-8192",
-        "messages": messages,
-        "temperature": 0.9,
-        "max_tokens": 120
-    }
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_input})
 
     try:
-        res = requests.post(url, headers=headers, json=payload)
-        data = res.json()
+        response = groq.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=messages,
+            temperature=0.9,
+            top_p=0.9,
+            max_tokens=120,
+        )
 
-        print(data)
+        reply = response.choices[0].message.content.strip()
 
-        reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        # 🔥 ANTI-REPEAT FIX
+        if channel_id in last_reply and reply == last_reply[channel_id]:
+            reply = "…you’re making me think twice now. say that differently."
 
-        if not reply:
-            return "say that again"
-
-        memory[user_id].append({"role": "assistant", "content": reply})
-
-        save_data({
-            "memory": memory,
-            "profiles": user_profiles,
-            "jokes": inside_jokes
-        })
+        last_reply[channel_id] = reply
 
         return reply
 
     except Exception as e:
         print("ERROR:", e)
-        return "something broke"
+        return "…hold on, something broke. try again."
 
-# -------- EVENTS -------- #
-
+# ================== EVENTS ==================
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
 
 @client.event
 async def on_message(message):
-    global last_message_time, is_sleeping
-
     if message.author == client.user:
         return
 
-    last_message_time = time.time()
+    channel_id = message.channel.id
+    user_input = message.content.strip()
 
-    user_id = str(message.author.id)
-    msg = message.content
-    now = time.time()
+    # store user msg
+    add_message(channel_id, "user", user_input)
 
-    # sleep system
-    if msg.lower() == "fed sleep":
-        is_sleeping = True
-        await message.channel.send("finally… peace.")
-        return
-
-    if msg.lower() == "fed wake":
-        is_sleeping = False
-        await message.channel.send("missed me?")
-        return
-
-    if is_sleeping:
-        return
-
-    # spam control
-    spam_tracker.setdefault(user_id, [])
-    spam_tracker[user_id].append(now)
-    spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
-
-    if len(spam_tracker[user_id]) > 6:
-        return
-
-    # reply condition
-    if not (client.user in message.mentions or message.channel.name == "federico-ai"):
-        return
-
-    if user_id in last_used and now - last_used[user_id] < COOLDOWN:
-        return
-
-    last_used[user_id] = now
-
+    # typing effect
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.6, 1.2))
+        await asyncio.sleep(1)
 
-    reply = get_ai_response(user_id, msg)
+        reply = await generate_reply(channel_id, user_input)
 
-    await message.channel.send(reply)
+        # store bot reply
+        add_message(channel_id, "assistant", reply)
 
-# -------- RUN -------- #
+        await message.channel.send(reply)
 
-client.run(os.getenv("TOKEN"))
+# ================== RUN ==================
+client.run(DISCORD_TOKEN)
