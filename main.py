@@ -10,7 +10,7 @@ TOKEN = os.getenv("TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not TOKEN:
-    raise ValueError("TOKEN not found in environment variables")
+    raise ValueError("TOKEN not found")
 
 if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found")
@@ -31,21 +31,21 @@ def add_message(cid, role, content):
 
     memory[cid].append({"role": role, "content": content})
 
-    # limit memory
-    memory[cid] = memory[cid][-10:]
+    # keep last 8 messages only
+    memory[cid] = memory[cid][-8:]
 
 
 # =======================
-# 💬 AI REPLY
+# 💬 AI GENERATION
 # =======================
 async def generate_reply(cid, user_input):
     messages = [
         {
             "role": "system",
             "content": (
-                "You are Federico — a chill, slightly sarcastic, flirty guy. "
-                "Keep replies short, human-like, and natural. "
-                "Avoid repeating phrases. No long paragraphs."
+                "You are Federico — a confident, chill, slightly sarcastic and flirty guy. "
+                "Keep replies SHORT (1 sentence). Natural. Human. No repetition. "
+                "Never say 'say that again'. Never be robotic."
             )
         }
     ]
@@ -54,17 +54,22 @@ async def generate_reply(cid, user_input):
 
     try:
         response = groq.chat.completions.create(
-            model="llama3-8b-8192",
+            model="mixtral-8x7b-32768",  # 🔥 stable model
             messages=messages,
-            temperature=0.8,
+            temperature=0.85,
             max_tokens=80
         )
 
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+
+        if not content or content.strip() == "":
+            return "you just glitched for a sec… try that again."
+
+        return content.strip()
 
     except Exception as e:
-        print("GROQ ERROR:", e)
-        return None
+        print("GROQ ERROR FULL:", repr(e))
+        return "…brain lag, try again."
 
 
 # =======================
@@ -108,15 +113,12 @@ async def on_message(message):
 
             reply = await generate_reply(cid, user_input)
 
-            if not reply:
-                reply = "…say that again."
-
             add_message(cid, "assistant", reply)
 
             await message.channel.send(reply)
 
     except Exception as e:
-        print("ON_MESSAGE ERROR:", e)
+        print("ON_MESSAGE ERROR:", repr(e))
         await message.channel.send("…something broke.")
 
 
