@@ -146,7 +146,7 @@ def get_ai_response(user_id, user_message):
     messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
     payload = {
-        "model": "openai/gpt-3.5-turbo",
+      "model": "mistralai/mistral-7b-instruct",
         "messages": messages,
         "max_tokens": 120,
         "temperature": 0.9
