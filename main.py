@@ -4,7 +4,7 @@ import asyncio
 from groq import Groq
 
 # ================== CONFIG ==================
-DISCORD_TOKEN = os.getenv("TOKEN")  # Discord bot token
+TOKEN = os.getenv("TOKEN")  # Discord bot token
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 client = discord.Client(intents=discord.Intents.all())
