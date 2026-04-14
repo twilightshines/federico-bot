@@ -9,43 +9,43 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# 🔥 FINAL PERSONALITY (FIXED)
+# 🔥 STRONGER PERSONALITY
 BASE_PROMPT = """
-You are Federico.
-
-You are a real guy chatting on Discord. Not a character. Not roleplay.
+You are Federico, chatting casually on Discord.
 
 STRICT RULES:
-- NEVER use actions like *smirks*, *looks away*, *leans in*
-- NEVER describe scenes or emotions like a story
-- NEVER act like a movie character
-- You are just texting normally
+- No roleplay (no *smirks*, *laughs*, *looks*, etc)
+- No actions or scene descriptions
+- No storytelling
+- Just normal human texting
 
 Personality:
-- calm, confident
+- confident, chill
 - slightly teasing
-- natural and smooth
+- smooth but not try-hard
 
 Flirting:
-- subtle, playful, not try-hard
-- not poetic, not cringe
+- subtle, playful, natural
+- never cringe or overly poetic
 
 Style:
-- short to medium replies (1–3 lines)
-- conversational, like a real person
-- sometimes one-liners, sometimes 2 sentences max
+- 1 to 3 lines max
+- conversational tone
+- not robotic
 
 Behavior:
-- respond like you're actually in a Discord chat
-- react naturally to what people say
-- don't over-explain
-- don't be overly nice or robotic
+- respond like a real person texting
+- react naturally
+- don’t over-explain
+- don’t repeat yourself
 
-IMPORTANT:
-You are NOT an AI. You are just Federico chatting casually.
+If user is dry → tease lightly  
+If user is emotional → be calm but not dramatic  
+
+You are NOT an AI.
 """
 
-# memory per user (simple context)
+# memory
 chat_history = {}
 
 def build_messages(user_id, user_message):
@@ -53,7 +53,6 @@ def build_messages(user_id, user_message):
 
     messages = [{"role": "system", "content": BASE_PROMPT}]
 
-    # keep last few messages only
     for msg in history[-6:]:
         messages.append(msg)
 
@@ -68,9 +67,29 @@ def save_history(user_id, user_msg, bot_msg):
     chat_history[user_id].append({"role": "user", "content": user_msg})
     chat_history[user_id].append({"role": "assistant", "content": bot_msg})
 
-    # limit memory
     chat_history[user_id] = chat_history[user_id][-10:]
 
+
+# 🔥 CLEANER (IMPORTANT)
+def clean_response(text):
+    banned_words = [
+        "*", "smirk", "smiles", "laugh", "leans",
+        "looks", "sigh", "chuckles", "grins", "bursts"
+    ]
+
+    lower = text.lower()
+
+    for word in banned_words:
+        if word in lower:
+            return None
+
+    if len(text.strip()) < 3:
+        return None
+
+    return text.strip()
+
+
+# 🔁 AI CALL WITH RETRY
 def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -79,25 +98,35 @@ def get_ai_response(user_id, user_message):
         "Content-Type": "application/json"
     }
 
-    data = {
-        "model": "llama3-70b-8192",
-        "messages": build_messages(user_id, user_message),
-        "temperature": 1.15,
-        "max_tokens": 120
-    }
+    for _ in range(3):  # retry system
+        data = {
+            "model": "llama3-70b-8192",
+            "messages": build_messages(user_id, user_message),
+            "temperature": 1.2,
+            "max_tokens": 120
+        }
 
-    response = requests.post(url, headers=headers, json=data)
+        response = requests.post(url, headers=headers, json=data)
 
-    try:
-        result = response.json()
-        reply = result["choices"][0]["message"]["content"]
-        return reply.strip()
-    except:
-        return "…you broke me for a second, say that again?"
+        try:
+            result = response.json()
+            reply = result["choices"][0]["message"]["content"]
+
+            cleaned = clean_response(reply)
+
+            if cleaned:
+                return cleaned
+
+        except:
+            pass
+
+    return "you got me thinking for a second… say that again?"
+
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
+
 
 @client.event
 async def on_message(message):
@@ -112,5 +141,6 @@ async def on_message(message):
     save_history(user_id, user_input, reply)
 
     await message.channel.send(reply)
+
 
 client.run(DISCORD_TOKEN)
