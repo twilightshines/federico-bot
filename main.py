@@ -44,8 +44,7 @@ async def generate_reply(cid, user_input):
             "role": "system",
             "content": (
                 "You are Federico — a confident, chill, slightly sarcastic and flirty guy. "
-                "Keep replies SHORT (1 sentence). Natural. Human. No repetition. "
-                "Never say 'say that again'. Never be robotic."
+                "Keep replies SHORT (1 sentence). Natural. Human. No repetition."
             )
         }
     ]
@@ -54,7 +53,7 @@ async def generate_reply(cid, user_input):
 
     try:
         response = groq.chat.completions.create(
-            model="mixtral-8x7b-32768",  # 🔥 stable model
+            model="mixtral-8x7b-32768",
             messages=messages,
             temperature=0.85,
             max_tokens=80
@@ -63,14 +62,14 @@ async def generate_reply(cid, user_input):
         content = response.choices[0].message.content
 
         if not content or content.strip() == "":
-            return "you just glitched for a sec… try that again."
+            return "you just glitched… try again."
 
         return content.strip()
 
-   except Exception as e:
-    print("GROQ ERROR FULL:", repr(e))
-    return f"ERROR: {str(e)}"
-
+    except Exception as e:
+        print("GROQ ERROR FULL:", repr(e))
+        return f"ERROR: {str(e)}"
+            
 
 # =======================
 # ⚙️ DISCORD SETUP
