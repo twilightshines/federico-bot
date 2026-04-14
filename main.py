@@ -4,26 +4,21 @@ import asyncio
 from groq import Groq
 
 # =======================
-# 🔑 ENV VARIABLES
+# CONFIG
 # =======================
+
 TOKEN = os.getenv("TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not TOKEN:
-    raise ValueError("TOKEN not found")
+client = discord.Client(intents=discord.Intents.all())
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY not found")
-
-# =======================
-# 🤖 GROQ CLIENT
-# =======================
-groq = Groq(api_key=GROQ_API_KEY)
-
-# =======================
-# 🧠 MEMORY
-# =======================
+# memory per channel
 memory = {}
+
+# =======================
+# MEMORY FUNCTIONS
+# =======================
 
 def add_message(cid, role, content):
     if cid not in memory:
@@ -31,70 +26,65 @@ def add_message(cid, role, content):
 
     memory[cid].append({"role": role, "content": content})
 
-    # keep last 8 messages only
-    memory[cid] = memory[cid][-8:]
+    # keep last 15 messages only
+    if len(memory[cid]) > 15:
+        memory[cid] = memory[cid][-15:]
+
+
+def get_messages(cid):
+    return memory.get(cid, [])
 
 
 # =======================
-# 💬 AI GENERATION
+# AI GENERATION
 # =======================
+
 async def generate_reply(cid, user_input):
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are Federico — a confident, chill, slightly sarcastic and flirty guy. "
-                "Keep replies SHORT (1 sentence). Natural. Human. No repetition."
-            )
-        }
-    ]
-
-    messages += memory.get(cid, [])
-
     try:
-       response = groq.chat.completions.create(
-        model="llama3-70b-8192",  # ✅ FIXED MODEL
-        messages=messages,
-        temperature=0.85,
-        max_tokens=120
-    )
-        
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are Federico. You talk like a real human. "
+                    "Short replies. Slightly sarcastic, flirty, natural. "
+                    "Never act like an AI. Never say 'I am an AI'."
+                )
+            }
+        ] + get_messages(cid)
 
-        content = response.choices[0].message.content
+        response = groq_client.chat.completions.create(
+            model="llama3-8b-8192",  # ✅ WORKING MODEL
+            messages=messages,
+            temperature=0.8,
+            max_tokens=80
+        )
 
-        if not content or content.strip() == "":
-            return "you just glitched… try again."
+        content = response.choices[0].message.content.strip()
 
-        return content.strip()
+        return content if content else None
 
     except Exception as e:
-        print("GROQ ERROR FULL:", repr(e))
-        return f"ERROR: {str(e)}"
-            
-
-# =======================
-# ⚙️ DISCORD SETUP
-# =======================
-intents = discord.Intents.default()
-intents.message_content = True
-
-client = discord.Client(intents=intents)
+        print("GROQ ERROR:", e)
+        return None
 
 
 # =======================
-# 🚀 READY EVENT
+# EVENTS
 # =======================
+
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
 
 
-# =======================
-# 💬 MESSAGE EVENT
-# =======================
 @client.event
 async def on_message(message):
+    # ignore self
     if message.author == client.user:
+        return
+
+    # 🚫 ignore other bots (VERY IMPORTANT)
+    if message.author.bot:
         return
 
     if not message.content:
@@ -109,20 +99,25 @@ async def on_message(message):
 
     try:
         async with message.channel.typing():
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.4)
 
             reply = await generate_reply(cid, user_input)
+
+            # fallback ONLY if real failure
+            if not reply:
+                reply = "huh?"
 
             add_message(cid, "assistant", reply)
 
             await message.channel.send(reply)
 
     except Exception as e:
-        print("ON_MESSAGE ERROR:", repr(e))
+        print("ON_MESSAGE ERROR:", e)
         await message.channel.send("…something broke.")
 
 
 # =======================
-# ▶️ RUN
+# RUN
 # =======================
+
 client.run(TOKEN)
