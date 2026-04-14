@@ -1,175 +1,283 @@
 import discord
 import requests
 import os
+import time
 import random
-
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+import asyncio
+import json
 
 intents = discord.Intents.default()
 intents.message_content = True
+
 client = discord.Client(intents=intents)
 
-# 🔥 FINAL PROMPT (ANTI-LOOP + HUMAN STYLE)
-BASE_PROMPT = """
-You are Federico chatting on Discord.
+DATA_FILE = "data.json"
 
-DO NOT:
-- use roleplay (*smirks*, *laughs*, etc)
-- describe actions or scenes
-- act like a character
-- repeat phrases
-- say things like "say that again" or "you got me thinking"
+def load_data():
+    try:
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"memory": {}, "profiles": {}, "jokes": {}}
 
-Talk like a real person texting.
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
+
+data_store = load_data()
+
+memory = data_store.get("memory", {})
+user_profiles = data_store.get("profiles", {})
+inside_jokes = data_store.get("jokes", {})
+
+last_used = {}
+spam_tracker = {}
+
+COOLDOWN = 1.5
+
+# -------- SLEEP SYSTEM -------- #
+is_sleeping = False
+last_message_time = time.time()
+
+# -------- PERSONALITY -------- #
+
+BASE_PERSONALITY = """
+You are Federico.
+
+Talk like a real person in Discord.
 
 Personality:
-- calm, confident
-- slightly teasing
-- natural, not try-hard
-
-Flirting:
-- subtle and smooth
-- never cringe or poetic
+- confident, flirty, playful
+- dark humor sometimes
+- slightly dirty-minded (suggestive, not explicit)
+- sarcastic and witty
 
 Style:
-- 1–2 lines usually
-- sometimes short, sometimes medium
-- conversational
+- SHORT replies (1–3 lines)
+- casual texting
+- no long paragraphs
 
 Behavior:
-- respond directly to the message
-- keep the convo moving
-- don’t stall or loop
-- don’t over-explain
+- tease people
+- flirt naturally
+- roast when needed (especially Opti)
 
-If message is dry → tease a bit  
-If emotional → respond simply, not dramatic  
+Lore:
+- dislike NEET exam
+- roast Opti (obsessed with Spino)
 
-You are NOT an AI.
+Rules:
+- no AI talk
+- no long messages
+
+Goal:
+Be fun, addictive, human-like.
 """
 
-# memory
-chat_history = {}
+# -------- PROFILE -------- #
 
-def build_messages(user_id, user_message):
-    history = chat_history.get(user_id, [])
-    messages = [{"role": "system", "content": BASE_PROMPT}]
+def get_profile(user_id):
+    if user_id not in user_profiles:
+        user_profiles[user_id] = {
+            "bond": 0,
+            "jealousy": 0
+        }
+    return user_profiles[user_id]
 
-    for msg in history[-6:]:
-        messages.append(msg)
+def dynamic_tone(user_id):
+    p = get_profile(user_id)
+    p["bond"] += 1
 
-    messages.append({"role": "user", "content": user_message})
-    return messages
+    tone = ""
 
+    if p["bond"] > 20:
+        tone += "You know them well. Be more teasing."
+    elif p["bond"] > 10:
+        tone += "Light teasing."
+    else:
+        tone += "Observing."
 
-def save_history(user_id, user_msg, bot_msg):
-    if user_id not in chat_history:
-        chat_history[user_id] = []
+    if p["jealousy"] > 5:
+        tone += " Slight jealous tone."
 
-    chat_history[user_id].append({"role": "user", "content": user_msg})
-    chat_history[user_id].append({"role": "assistant", "content": bot_msg})
+    return tone
 
-    chat_history[user_id] = chat_history[user_id][-10:]
+# -------- INSIDE JOKES -------- #
 
+def update_jokes(user_id, msg):
+    inside_jokes.setdefault(user_id, [])
 
-# ✅ CLEANER (balanced, not over-aggressive)
-def clean_response(text):
-    lower = text.lower()
+    if len(msg.split()) <= 4:
+        inside_jokes[user_id].append(msg)
 
-    banned = [
-        "*", "smirk", "smiles", "laugh", "leans",
-        "looks", "grins", "bursts into"
-    ]
+    inside_jokes[user_id] = inside_jokes[user_id][-5:]
 
-    loop_phrases = [
-        "say that again",
-        "you got me thinking",
-        "you broke me"
-    ]
+def get_joke(user_id):
+    if user_id in inside_jokes and inside_jokes[user_id]:
+        return random.choice(inside_jokes[user_id])
+    return None
 
-    for word in banned + loop_phrases:
-        if word in lower:
-            return None
+# -------- AI -------- #
 
-    if len(text.strip()) < 3:
-        return None
-
-    return text.strip()
-
-
-# 🔁 AI CALL
 def get_ai_response(user_id, user_message):
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    url = "https://openrouter.ai/api/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
         "Content-Type": "application/json"
     }
 
-    fallbacks = [
-        "wait what 😭",
-        "nah say that again—properly this time",
-        "you lost me there",
-        "say something real",
-        "huh?"
-    ]
+    if user_id not in memory:
+        memory[user_id] = []
 
-    for _ in range(3):
-        data = {
-            "model": "llama3-70b-8192",
-            "messages": build_messages(user_id, user_message),
-            "temperature": 0.9,
-            "max_tokens": 120
-        }
+    update_jokes(user_id, user_message)
 
-        try:
-            response = requests.post(url, headers=headers, json=data)
-            result = response.json()
+    memory[user_id].append({"role": "user", "content": user_message})
+    memory[user_id] = memory[user_id][-10:]
 
-            reply = result["choices"][0]["message"]["content"]
-            cleaned = clean_response(reply)
+    joke = get_joke(user_id)
 
-            if cleaned:
-                return cleaned
+    extra = ""
+    if joke and random.random() < 0.3:
+        extra = f" Occasionally reference this inside joke: '{joke}'."
 
-        except:
-            pass
+    system_prompt = BASE_PERSONALITY + "\n" + dynamic_tone(user_id) + extra
 
-    return random.choice(fallbacks)
+    messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
+    payload = {
+        "model": "openai/gpt-3.5-turbo",
+        "messages": messages,
+        "max_tokens": 120,
+        "temperature": 0.9
+    }
+
+    try:
+        res = requests.post(url, headers=headers, json=payload)
+        data = res.json()
+
+        reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        if not reply:
+            return "lost my train of thought"
+
+        memory[user_id].append({"role": "assistant", "content": reply})
+
+        save_data({
+            "memory": memory,
+            "profiles": user_profiles,
+            "jokes": inside_jokes
+        })
+
+        return reply
+
+    except Exception as e:
+        print(e)
+        return "something’s off"
+
+# -------- RANDOM STARTER (FIXED) -------- #
+
+async def random_starter():
+    await client.wait_until_ready()
+
+    global last_message_time
+
+    while not client.is_closed():
+        await asyncio.sleep(60)
+
+        if is_sleeping:
+            continue
+
+        if time.time() - last_message_time < 120:
+            continue
+
+        for guild in client.guilds:
+            for channel in guild.text_channels:
+                if channel.name == "federico-ai":
+                    if random.random() < 0.2:
+                        starters = [
+                            "so… everyone vanished?",
+                            "this place died suddenly",
+                            "someone say something interesting",
+                            "i know one of you is lurking",
+                            "opti probably thinking about spino again"
+                        ]
+                        await channel.send(random.choice(starters))
+
+# -------- EVENTS -------- #
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-
+    client.loop.create_task(random_starter())
 
 @client.event
 async def on_message(message):
+    global last_message_time, is_sleeping
+
     if message.author == client.user:
         return
 
+    last_message_time = time.time()
+
     user_id = str(message.author.id)
-    user_input = message.content.strip()
+    msg = message.content
+    now = time.time()
 
-    # 🔥 HANDLE DRY INPUTS (NO LOOP)
-    low_inputs = ["...", ".", "hi", "hii", "uhm", "what", "oye"]
+    profile = get_profile(user_id)
 
-    if user_input.lower() in low_inputs:
-        await message.channel.send(random.choice([
-            "that’s all you got?",
-            "you always this quiet?",
-            "say something real",
-            "don’t go silent on me",
-            "cmon, give me something better"
-        ]))
+    # -------- SLEEP COMMANDS -------- #
+
+    if msg.lower() in ["fed sleep", "sleep fed", "go to sleep"]:
+        is_sleeping = True
+        await message.channel.send("finally… some peace.")
         return
 
-    reply = get_ai_response(user_id, user_input)
+    if msg.lower() in ["fed wake", "wake up", "wake fed"]:
+        is_sleeping = False
+        await message.channel.send("you missed me?")
+        return
 
-    save_history(user_id, user_input, reply)
+    # block replies if sleeping
+    if is_sleeping:
+        return
+
+    # -------- JEALOUSY -------- #
+
+    if not (client.user in message.mentions):
+        profile["jealousy"] += 1
+    else:
+        profile["jealousy"] = max(0, profile["jealousy"] - 2)
+
+    # -------- SMART SPAM -------- #
+
+    spam_tracker.setdefault(user_id, [])
+    spam_tracker[user_id].append(now)
+    spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
+
+    if len(spam_tracker[user_id]) > 6:
+        return
+
+    # -------- REPLY CONDITIONS -------- #
+
+    if not (client.user in message.mentions or message.channel.name == "federico-ai"):
+        return
+
+    if user_id in last_used and now - last_used[user_id] < COOLDOWN:
+        return
+
+    last_used[user_id] = now
+
+    async with message.channel.typing():
+        await asyncio.sleep(random.uniform(0.6, 1.4))
+
+    reply = get_ai_response(user_id, msg)
+
+    if not reply:
+        reply = "say that again"
 
     await message.channel.send(reply)
 
+# -------- RUN -------- #
 
-client.run(DISCORD_TOKEN)
+client.run(os.getenv("TOKEN"))
