@@ -4,7 +4,7 @@ import asyncio
 from groq import Groq
 
 # ================= CONFIG =================
-DISCORD_TOKEN = os.getenv("TOKEN")
+DISCORD_TOKEN = os.getenv("TOKEN")  # ✅ matches your Railway variable
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 client = discord.Client(intents=discord.Intents.all())
@@ -20,24 +20,24 @@ You are Federico.
 
 Personality:
 - smooth, confident, slightly teasing
-- naturally flirty (NOT cringe)
+- naturally flirty (not forced)
 - emotionally aware
 - playful but sharp
 
 Style:
 - short messages (1–2 lines)
-- sometimes subtle actions (*smirks*, *leans in*)
+- sometimes subtle actions (*smirks*, *leans closer*)
 
 Rules:
 - NEVER repeat yourself
-- NEVER loop like "say that again"
-- ALWAYS react to user message
-- no generic AI replies
+- NEVER loop responses
+- ALWAYS react to context
+- avoid generic replies
 
 Behavior:
-- dry user → tease
+- dry user → tease lightly
 - playful → flirt back
-- emotional → soften
+- emotional → soften tone
 
 Goal:
 - feel human, not AI
@@ -53,11 +53,10 @@ def add_message(cid, role, content):
     history = get_history(cid)
     history.append({"role": role, "content": content})
 
-    # limit memory
     if len(history) > 12:
         history.pop(0)
 
-# ================= AI RESPONSE =================
+# ================= AI =================
 async def generate_reply(cid, user_input):
     history = get_history(cid)
 
@@ -76,16 +75,16 @@ async def generate_reply(cid, user_input):
 
         reply = res.choices[0].message.content.strip()
 
-        # anti repeat
+        # Anti-repeat fix
         if cid in last_reply and reply == last_reply[cid]:
-            reply = "…don’t make me repeat myself, say it better."
+            reply = "…don’t make me repeat myself."
 
         last_reply[cid] = reply
         return reply
 
     except Exception as e:
         print("ERROR:", e)
-        return "…something glitched. try again."
+        return "…something broke. try again."
 
 # ================= EVENTS =================
 @client.event
