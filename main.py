@@ -52,12 +52,13 @@ async def generate_reply(cid, user_input):
     messages += memory.get(cid, [])
 
     try:
-        response = groq.chat.completions.create(
-            model="mixtral-8x7b-32768",
-            messages=messages,
-            temperature=0.85,
-            max_tokens=80
-        )
+       response = groq.chat.completions.create(
+        model="llama3-70b-8192",  # ✅ FIXED MODEL
+        messages=messages,
+        temperature=0.85,
+        max_tokens=120
+    )
+        
 
         content = response.choices[0].message.content
 
