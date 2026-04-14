@@ -1,6 +1,7 @@
 import discord
 import requests
 import os
+import random
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -9,38 +10,38 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# 🔥 STRONGER PERSONALITY
+# 🔥 FINAL PROMPT (FIXED)
 BASE_PROMPT = """
 You are Federico, chatting casually on Discord.
 
 STRICT RULES:
-- No roleplay (no *smirks*, *laughs*, *looks*, etc)
-- No actions or scene descriptions
-- No storytelling
-- Just normal human texting
+- NO roleplay (*smirks*, *laughs*, etc)
+- NO actions or scene descriptions
+- NO storytelling
+- JUST normal texting like a real person
 
 Personality:
 - confident, chill
 - slightly teasing
-- smooth but not try-hard
+- natural and smooth
 
 Flirting:
-- subtle, playful, natural
-- never cringe or overly poetic
+- subtle, playful, effortless
+- not cringe, not poetic
 
 Style:
-- 1 to 3 lines max
-- conversational tone
-- not robotic
+- mostly 1–2 lines
+- sometimes short, sometimes medium
+- NEVER robotic
 
 Behavior:
-- respond like a real person texting
-- react naturally
-- don’t over-explain
-- don’t repeat yourself
+- respond directly to what user says
+- don’t repeat phrases
+- don’t stall conversation
+- keep things flowing naturally
 
 If user is dry → tease lightly  
-If user is emotional → be calm but not dramatic  
+If user is emotional → respond calmly  
 
 You are NOT an AI.
 """
@@ -60,6 +61,7 @@ def build_messages(user_id, user_message):
 
     return messages
 
+
 def save_history(user_id, user_msg, bot_msg):
     if user_id not in chat_history:
         chat_history[user_id] = []
@@ -70,20 +72,28 @@ def save_history(user_id, user_msg, bot_msg):
     chat_history[user_id] = chat_history[user_id][-10:]
 
 
-# 🔥 CLEANER (IMPORTANT)
+# ✅ CLEANER (NOT OVER-STRICT)
 def clean_response(text):
-    banned_words = [
-        "*", "smirk", "smiles", "laugh", "leans",
-        "looks", "sigh", "chuckles", "grins", "bursts"
-    ]
-
     lower = text.lower()
 
-    for word in banned_words:
+    banned_patterns = [
+        "*",
+        "leans in",
+        "looks at",
+        "smirks",
+        "grins",
+        "bursts into"
+    ]
+
+    for word in banned_patterns:
         if word in lower:
             return None
 
-    if len(text.strip()) < 3:
+    # prevent loop phrases
+    if "say that again" in lower:
+        return None
+
+    if len(text.strip()) < 2:
         return None
 
     return text.strip()
@@ -98,7 +108,15 @@ def get_ai_response(user_id, user_message):
         "Content-Type": "application/json"
     }
 
-    for _ in range(3):  # retry system
+    fallbacks = [
+        "wait what 😭",
+        "nah say that again",
+        "i didn’t catch that",
+        "huh?",
+        "you lost me there"
+    ]
+
+    for _ in range(3):
         data = {
             "model": "llama3-70b-8192",
             "messages": build_messages(user_id, user_message),
@@ -106,12 +124,11 @@ def get_ai_response(user_id, user_message):
             "max_tokens": 120
         }
 
-        response = requests.post(url, headers=headers, json=data)
-
         try:
+            response = requests.post(url, headers=headers, json=data)
             result = response.json()
-            reply = result["choices"][0]["message"]["content"]
 
+            reply = result["choices"][0]["message"]["content"]
             cleaned = clean_response(reply)
 
             if cleaned:
@@ -120,7 +137,7 @@ def get_ai_response(user_id, user_message):
         except:
             pass
 
-    return "you got me thinking for a second… say that again?"
+    return random.choice(fallbacks)
 
 
 @client.event
@@ -134,7 +151,11 @@ async def on_message(message):
         return
 
     user_id = str(message.author.id)
-    user_input = message.content
+    user_input = message.content.strip()
+
+    # prevent empty spam triggering fallback loops
+    if not user_input or user_input in ["...", ".", "hi"]:
+        return
 
     reply = get_ai_response(user_id, user_input)
 
