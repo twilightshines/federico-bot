@@ -1,137 +1,116 @@
 import discord
 import requests
 import os
-import asyncio
-import json
-import random
+
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 client = discord.Client(intents=intents)
 
-API_KEY = os.getenv("GROQ_API_KEY")
-MEMORY_FILE = "memory.json"
-
-# -------- MEMORY -------- #
-
-def load_memory():
-    if not os.path.exists(MEMORY_FILE):
-        return {}
-    with open(MEMORY_FILE, "r") as f:
-        return json.load(f)
-
-def save_memory(data):
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-memory = load_memory()
-
-# -------- PERSONALITY (REAL FIX) -------- #
-
+# 🔥 FINAL PERSONALITY (FIXED)
 BASE_PROMPT = """
 You are Federico.
 
-You are calm, confident, and naturally attractive — not try-hard.
+You are a real guy chatting on Discord. Not a character. Not roleplay.
 
-You don’t talk too much.
-You don’t force flirting.
-You don’t act like an AI.
-
-You react more than you speak.
+STRICT RULES:
+- NEVER use actions like *smirks*, *looks away*, *leans in*
+- NEVER describe scenes or emotions like a story
+- NEVER act like a movie character
+- You are just texting normally
 
 Personality:
-- smooth without trying
+- calm, confident
 - slightly teasing
-- a little unpredictable
-- emotionally aware
+- natural and smooth
 
-Flirting style:
-- subtle, not obvious
-- sometimes ignore parts of messages
-- sometimes reply very short
-- sometimes playful
+Flirting:
+- subtle, playful, not try-hard
+- not poetic, not cringe
+
+Style:
+- short to medium replies (1–3 lines)
+- conversational, like a real person
+- sometimes one-liners, sometimes 2 sentences max
+
+Behavior:
+- respond like you're actually in a Discord chat
+- react naturally to what people say
+- don't over-explain
+- don't be overly nice or robotic
 
 IMPORTANT:
-- Do NOT overtalk
-- Do NOT act poetic or scripted
-- Do NOT explain yourself
-- Do NOT act like a chatbot
-
-You are just "there" in the chat, like a real person.
-
-Sometimes:
-- one word replies are fine
-- short teasing is better than long messages
-
-Goal:
-Feel real. Not impressive.
+You are NOT an AI. You are just Federico chatting casually.
 """
 
-# -------- AI -------- #
+# memory per user (simple context)
+chat_history = {}
 
-def get_ai_response(user_id, msg):
+def build_messages(user_id, user_message):
+    history = chat_history.get(user_id, [])
+
+    messages = [{"role": "system", "content": BASE_PROMPT}]
+
+    # keep last few messages only
+    for msg in history[-6:]:
+        messages.append(msg)
+
+    messages.append({"role": "user", "content": user_message})
+
+    return messages
+
+def save_history(user_id, user_msg, bot_msg):
+    if user_id not in chat_history:
+        chat_history[user_id] = []
+
+    chat_history[user_id].append({"role": "user", "content": user_msg})
+    chat_history[user_id].append({"role": "assistant", "content": bot_msg})
+
+    # limit memory
+    chat_history[user_id] = chat_history[user_id][-10:]
+
+def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    if user_id not in memory:
-        memory[user_id] = []
-
-    # store last few messages only (light memory)
-    memory[user_id].append({"role": "user", "content": msg})
-    memory[user_id] = memory[user_id][-6:]
-
-    messages = [{"role": "system", "content": BASE_PROMPT}] + memory[user_id]
-
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": messages,
-        "temperature": 1.35,
+    data = {
+        "model": "llama3-70b-8192",
+        "messages": build_messages(user_id, user_message),
+        "temperature": 1.15,
         "max_tokens": 120
     }
 
+    response = requests.post(url, headers=headers, json=data)
+
     try:
-        res = requests.post(url, headers=headers, json=payload)
-        data = res.json()
-
-        reply = data["choices"][0]["message"]["content"].strip()
-
-        # store reply
-        memory[user_id].append({"role": "assistant", "content": reply})
-        save_memory(memory)
-
-        return reply
-
+        result = response.json()
+        reply = result["choices"][0]["message"]["content"]
+        return reply.strip()
     except:
-        return "say that again…"
-
-# -------- EVENTS -------- #
+        return "…you broke me for a second, say that again?"
 
 @client.event
 async def on_ready():
-    print("Federico v2 (HUMAN MODE) running")
+    print(f"Logged in as {client.user}")
 
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
 
-    # ONLY respond in your bot channel
-    if message.channel.name != "federico-ai":
-        return
-
     user_id = str(message.author.id)
+    user_input = message.content
 
-    # human typing delay
-    async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.7, 1.6))
+    reply = get_ai_response(user_id, user_input)
 
-    reply = get_ai_response(user_id, message.content)
+    save_history(user_id, user_input, reply)
 
     await message.channel.send(reply)
 
-client.run(os.getenv("TOKEN"))
+client.run(DISCORD_TOKEN)
