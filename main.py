@@ -35,7 +35,7 @@ spam_tracker = {}
 
 COOLDOWN = 1.5
 
-# -------- SLEEP SYSTEM -------- #
+# -------- SLEEP -------- #
 is_sleeping = False
 last_message_time = time.time()
 
@@ -49,60 +49,42 @@ Talk like a real person in Discord.
 Personality:
 - confident, flirty, playful
 - dark humor sometimes
-- slightly dirty-minded (suggestive, not explicit)
+- slightly suggestive
 - sarcastic and witty
 
 Style:
 - SHORT replies (1–3 lines)
 - casual texting
-- no long paragraphs
 
 Behavior:
 - tease people
 - flirt naturally
-- roast when needed (especially Opti)
-
-Lore:
-- dislike NEET exam
-- roast Opti (obsessed with Spino)
+- roast Opti sometimes
 
 Rules:
 - no AI talk
-- no long messages
-
-Goal:
-Be fun, addictive, human-like.
+- no long paragraphs
 """
 
 # -------- PROFILE -------- #
 
 def get_profile(user_id):
     if user_id not in user_profiles:
-        user_profiles[user_id] = {
-            "bond": 0,
-            "jealousy": 0
-        }
+        user_profiles[user_id] = {"bond": 0, "jealousy": 0}
     return user_profiles[user_id]
 
 def dynamic_tone(user_id):
     p = get_profile(user_id)
     p["bond"] += 1
 
-    tone = ""
-
     if p["bond"] > 20:
-        tone += "You know them well. Be more teasing."
+        return "You know them well. Be teasing."
     elif p["bond"] > 10:
-        tone += "Light teasing."
+        return "Light teasing."
     else:
-        tone += "Observing."
+        return "Neutral."
 
-    if p["jealousy"] > 5:
-        tone += " Slight jealous tone."
-
-    return tone
-
-# -------- INSIDE JOKES -------- #
+# -------- JOKES -------- #
 
 def update_jokes(user_id, msg):
     inside_jokes.setdefault(user_id, [])
@@ -117,13 +99,18 @@ def get_joke(user_id):
         return random.choice(inside_jokes[user_id])
     return None
 
-# -------- AI -------- #
+# -------- GROQ AI -------- #
 
 def get_ai_response(user_id, user_message):
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        return "api key missing"
 
     headers = {
-        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
 
@@ -139,27 +126,29 @@ def get_ai_response(user_id, user_message):
 
     extra = ""
     if joke and random.random() < 0.3:
-        extra = f" Occasionally reference this inside joke: '{joke}'."
+        extra = f" Reference this inside joke sometimes: '{joke}'."
 
     system_prompt = BASE_PERSONALITY + "\n" + dynamic_tone(user_id) + extra
 
     messages = [{"role": "system", "content": system_prompt}] + memory[user_id]
 
     payload = {
-      "model": "mistralai/mistral-7b-instruct",
+        "model": "llama3-70b-8192",
         "messages": messages,
-        "max_tokens": 120,
-        "temperature": 0.9
+        "temperature": 0.9,
+        "max_tokens": 120
     }
 
     try:
         res = requests.post(url, headers=headers, json=payload)
         data = res.json()
 
+        print(data)
+
         reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         if not reply:
-            return "lost my train of thought"
+            return "say that again"
 
         memory[user_id].append({"role": "assistant", "content": reply})
 
@@ -172,44 +161,14 @@ def get_ai_response(user_id, user_message):
         return reply
 
     except Exception as e:
-        print(e)
-        return "something’s off"
-
-# -------- RANDOM STARTER (FIXED) -------- #
-
-async def random_starter():
-    await client.wait_until_ready()
-
-    global last_message_time
-
-    while not client.is_closed():
-        await asyncio.sleep(60)
-
-        if is_sleeping:
-            continue
-
-        if time.time() - last_message_time < 120:
-            continue
-
-        for guild in client.guilds:
-            for channel in guild.text_channels:
-                if channel.name == "federico-ai":
-                    if random.random() < 0.2:
-                        starters = [
-                            "so… everyone vanished?",
-                            "this place died suddenly",
-                            "someone say something interesting",
-                            "i know one of you is lurking",
-                            "opti probably thinking about spino again"
-                        ]
-                        await channel.send(random.choice(starters))
+        print("ERROR:", e)
+        return "something broke"
 
 # -------- EVENTS -------- #
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-    client.loop.create_task(random_starter())
 
 @client.event
 async def on_message(message):
@@ -224,33 +183,21 @@ async def on_message(message):
     msg = message.content
     now = time.time()
 
-    profile = get_profile(user_id)
-
-    # -------- SLEEP COMMANDS -------- #
-
-    if msg.lower() in ["fed sleep", "sleep fed", "go to sleep"]:
+    # sleep system
+    if msg.lower() == "fed sleep":
         is_sleeping = True
-        await message.channel.send("finally… some peace.")
+        await message.channel.send("finally… peace.")
         return
 
-    if msg.lower() in ["fed wake", "wake up", "wake fed"]:
+    if msg.lower() == "fed wake":
         is_sleeping = False
-        await message.channel.send("you missed me?")
+        await message.channel.send("missed me?")
         return
 
-    # block replies if sleeping
     if is_sleeping:
         return
 
-    # -------- JEALOUSY -------- #
-
-    if not (client.user in message.mentions):
-        profile["jealousy"] += 1
-    else:
-        profile["jealousy"] = max(0, profile["jealousy"] - 2)
-
-    # -------- SMART SPAM -------- #
-
+    # spam control
     spam_tracker.setdefault(user_id, [])
     spam_tracker[user_id].append(now)
     spam_tracker[user_id] = [t for t in spam_tracker[user_id] if now - t < 5]
@@ -258,8 +205,7 @@ async def on_message(message):
     if len(spam_tracker[user_id]) > 6:
         return
 
-    # -------- REPLY CONDITIONS -------- #
-
+    # reply condition
     if not (client.user in message.mentions or message.channel.name == "federico-ai"):
         return
 
@@ -269,12 +215,9 @@ async def on_message(message):
     last_used[user_id] = now
 
     async with message.channel.typing():
-        await asyncio.sleep(random.uniform(0.6, 1.4))
+        await asyncio.sleep(random.uniform(0.6, 1.2))
 
     reply = get_ai_response(user_id, msg)
-
-    if not reply:
-        reply = "say that again"
 
     await message.channel.send(reply)
 
