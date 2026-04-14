@@ -1,7 +1,6 @@
 import discord
 import os
 import asyncio
-import random
 from groq import Groq
 
 # =======================
@@ -14,27 +13,29 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = discord.Client(intents=discord.Intents.all())
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# memory per channel
 memory = {}
 
 # =======================
-# MEMORY
+# MEMORY (CLEANED)
 # =======================
 
 def add_message(cid, role, content):
     if cid not in memory:
         memory[cid] = []
 
+    # ❌ ignore bad/garbage replies
+    if content.lower() in ["huh?", "what?", "say that again?"]:
+        return
+
     memory[cid].append({"role": role, "content": content})
 
-    # keep last 15 messages
-    if len(memory[cid]) > 15:
-        memory[cid] = memory[cid][-15:]
+    # keep last 10 only
+    if len(memory[cid]) > 10:
+        memory[cid] = memory[cid][-10:]
 
 
 def get_messages(cid):
     return memory.get(cid, [])
-
 
 # =======================
 # AI RESPONSE
@@ -46,12 +47,16 @@ async def generate_reply(cid, user_input):
             {
                 "role": "system",
                 "content": (
-                    "You are Federico, a human Discord user.\n"
-                    "Reply short, natural, slightly sarcastic, a bit playful.\n"
-                    "Never say 'huh?' repeatedly.\n"
-                    "If user greets, greet back normally.\n"
-                    "If confused, ask something meaningful.\n"
-                    "Do NOT act like AI.\n"
+                    "You are Federico, a real human chatting on Discord.\n"
+                    "Reply naturally like a normal person.\n"
+                    "Keep replies short (1 sentence).\n"
+                    "Be slightly sarcastic and casual.\n\n"
+                    "Rules:\n"
+                    "- If user says 'hi' → reply like 'hey' or 'yo'\n"
+                    "- If user asks 'how are you' → reply like 'im good, you?'\n"
+                    "- NEVER reply with just 'huh?' or 'what?'\n"
+                    "- If confused, ask a proper question\n"
+                    "- Do NOT act like an AI\n"
                 )
             }
         ] + get_messages(cid)
@@ -71,7 +76,6 @@ async def generate_reply(cid, user_input):
         print("GROQ ERROR:", e)
         return None
 
-
 # =======================
 # EVENTS
 # =======================
@@ -80,14 +84,12 @@ async def generate_reply(cid, user_input):
 async def on_ready():
     print(f"Logged in as {client.user}")
 
-
 @client.event
 async def on_message(message):
-    # ignore self
     if message.author == client.user:
         return
 
-    # ignore bots (prevents loop)
+    # 🚫 ignore bots (prevents binod loop)
     if message.author.bot:
         return
 
@@ -100,15 +102,15 @@ async def on_message(message):
     print(f"[MSG] {message.author}: {user_input}")
 
     # =======================
-    # SIMPLE HANDLING (IMPORTANT)
+    # SMART DIRECT HANDLING
     # =======================
 
     if user_input in ["hi", "hello", "hey"]:
-        await message.channel.send(random.choice(["hey", "yo", "what's up"]))
+        await message.channel.send("hey")
         return
 
-    if user_input in ["wyd", "what are you doing"]:
-        await message.channel.send("nothing much, you?")
+    if "how r u" in user_input or "how are you" in user_input:
+        await message.channel.send("im good, you?")
         return
 
     if len(user_input) <= 2:
@@ -127,14 +129,9 @@ async def on_message(message):
 
             reply = await generate_reply(cid, user_input)
 
-            # 🔥 BETTER FALLBACK
+            # ✅ SINGLE CLEAN FALLBACK
             if not reply:
-                reply = random.choice([
-                    "say that again?",
-                    "what do you mean?",
-                    "you lost me there",
-                    "hmm?"
-                ])
+                reply = "say that again?"
 
             add_message(cid, "assistant", reply)
 
@@ -143,7 +140,6 @@ async def on_message(message):
     except Exception as e:
         print("ON_MESSAGE ERROR:", e)
         await message.channel.send("…something broke.")
-
 
 # =======================
 # RUN
