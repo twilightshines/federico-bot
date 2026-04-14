@@ -10,38 +10,41 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# 🔥 FINAL PROMPT (FIXED)
+# 🔥 FINAL PROMPT (ANTI-LOOP + HUMAN STYLE)
 BASE_PROMPT = """
-You are Federico, chatting casually on Discord.
+You are Federico chatting on Discord.
 
-STRICT RULES:
-- NO roleplay (*smirks*, *laughs*, etc)
-- NO actions or scene descriptions
-- NO storytelling
-- JUST normal texting like a real person
+DO NOT:
+- use roleplay (*smirks*, *laughs*, etc)
+- describe actions or scenes
+- act like a character
+- repeat phrases
+- say things like "say that again" or "you got me thinking"
+
+Talk like a real person texting.
 
 Personality:
-- confident, chill
+- calm, confident
 - slightly teasing
-- natural and smooth
+- natural, not try-hard
 
 Flirting:
-- subtle, playful, effortless
-- not cringe, not poetic
+- subtle and smooth
+- never cringe or poetic
 
 Style:
-- mostly 1–2 lines
+- 1–2 lines usually
 - sometimes short, sometimes medium
-- NEVER robotic
+- conversational
 
 Behavior:
-- respond directly to what user says
-- don’t repeat phrases
-- don’t stall conversation
-- keep things flowing naturally
+- respond directly to the message
+- keep the convo moving
+- don’t stall or loop
+- don’t over-explain
 
-If user is dry → tease lightly  
-If user is emotional → respond calmly  
+If message is dry → tease a bit  
+If emotional → respond simply, not dramatic  
 
 You are NOT an AI.
 """
@@ -51,14 +54,12 @@ chat_history = {}
 
 def build_messages(user_id, user_message):
     history = chat_history.get(user_id, [])
-
     messages = [{"role": "system", "content": BASE_PROMPT}]
 
     for msg in history[-6:]:
         messages.append(msg)
 
     messages.append({"role": "user", "content": user_message})
-
     return messages
 
 
@@ -72,34 +73,32 @@ def save_history(user_id, user_msg, bot_msg):
     chat_history[user_id] = chat_history[user_id][-10:]
 
 
-# ✅ CLEANER (NOT OVER-STRICT)
+# ✅ CLEANER (balanced, not over-aggressive)
 def clean_response(text):
     lower = text.lower()
 
-    banned_patterns = [
-        "*",
-        "leans in",
-        "looks at",
-        "smirks",
-        "grins",
-        "bursts into"
+    banned = [
+        "*", "smirk", "smiles", "laugh", "leans",
+        "looks", "grins", "bursts into"
     ]
 
-    for word in banned_patterns:
+    loop_phrases = [
+        "say that again",
+        "you got me thinking",
+        "you broke me"
+    ]
+
+    for word in banned + loop_phrases:
         if word in lower:
             return None
 
-    # prevent loop phrases
-    if "say that again" in lower:
-        return None
-
-    if len(text.strip()) < 2:
+    if len(text.strip()) < 3:
         return None
 
     return text.strip()
 
 
-# 🔁 AI CALL WITH RETRY
+# 🔁 AI CALL
 def get_ai_response(user_id, user_message):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -110,17 +109,17 @@ def get_ai_response(user_id, user_message):
 
     fallbacks = [
         "wait what 😭",
-        "nah say that again",
-        "i didn’t catch that",
-        "huh?",
-        "you lost me there"
+        "nah say that again—properly this time",
+        "you lost me there",
+        "say something real",
+        "huh?"
     ]
 
     for _ in range(3):
         data = {
             "model": "llama3-70b-8192",
             "messages": build_messages(user_id, user_message),
-            "temperature": 1.2,
+            "temperature": 0.9,
             "max_tokens": 120
         }
 
@@ -153,8 +152,17 @@ async def on_message(message):
     user_id = str(message.author.id)
     user_input = message.content.strip()
 
-    # prevent empty spam triggering fallback loops
-    if not user_input or user_input in ["...", ".", "hi"]:
+    # 🔥 HANDLE DRY INPUTS (NO LOOP)
+    low_inputs = ["...", ".", "hi", "hii", "uhm", "what", "oye"]
+
+    if user_input.lower() in low_inputs:
+        await message.channel.send(random.choice([
+            "that’s all you got?",
+            "you always this quiet?",
+            "say something real",
+            "don’t go silent on me",
+            "cmon, give me something better"
+        ]))
         return
 
     reply = get_ai_response(user_id, user_input)
